@@ -1,0 +1,18 @@
+[project]
+name = "fpe-engine"
+version = "0.1.0"
+description = "FPE Option Pricing Engine — Mojo + MAX AI Kernels"
+channels = ["https://conda.modular.com/max", "conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+max = ">=26.2.0,<26.3"
+mojo = ">=0.26.2,<0.27"
+matplotlib = ">=3.10.8,<4"
+scipy = ">=1.17.1,<2"
+numpy = ">=2.4.3,<3"
+
+[tasks]
+build = "mojo build src/"
+test = "mojo test tests/"
+bench = "mojo run benchmarks/"
