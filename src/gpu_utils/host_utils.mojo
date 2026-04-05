@@ -1,16 +1,27 @@
-"""Shared GPU host-side utilities for buffer management and kernel launch."""
+"""Shared GPU host-side utilities for buffer management and kernel launch.
+
+Provides automatic backend detection for true cross-platform deployment.
+No hardcoded API strings - all backend selection is automatic.
+"""
 
 from gpu_utils.detect import get_device_api_name, is_gpu_available
 from std.gpu.host import DeviceContext
 
 
 def create_device_context() raises -> DeviceContext:
-    """Create a DeviceContext with the appropriate backend API.
+    """Create a DeviceContext with automatic backend detection.
 
-    Uses Metal on Apple Silicon, generic backend otherwise.
+    Automatically selects the correct backend API:
+    - Apple Silicon → DeviceContext(api="metal")
+    - NVIDIA → DeviceContext(api="cuda")
+    - AMD → DeviceContext(api="hip")
+    - Generic → DeviceContext() (auto-detect)
+    - CPU → DeviceContext() (fallback)
+
+    No hardcoded API strings - fully automatic.
     """
     var api_name = get_device_api_name()
-    if api_name == "metal":
-        return DeviceContext(api="metal")
+    if api_name != "":
+        return DeviceContext(api=api_name)
     else:
         return DeviceContext()
