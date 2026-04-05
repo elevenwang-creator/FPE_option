@@ -78,15 +78,30 @@ struct StableLinear(Copyable, Movable):
                     s = s + self.W[k][i] * self.W[k][j]
                 RtR[i][j] = s
 
-        var norm_sq = 0.0
+        # Estimate spectral norm via power iteration (20 iterations)
+        # instead of Frobenius norm which doesn't bound the operator norm
+        var v: List[Float64] = []
         for i in range(out_features):
-            for j in range(out_features):
-                norm_sq = norm_sq + RtR[i][j] * RtR[i][j]
-        var norm = sqrt(norm_sq)
-        if norm < 1e-12:
-            norm = 1e-12
+            v.append(1.0)
 
-        var scale = sqrt(delta) / sqrt(norm)
+        var spectral_norm: Float64 = 1.0
+        for _ in range(20):
+            var Rv: List[Float64] = zeros(out_features)
+            for i in range(out_features):
+                for j in range(out_features):
+                    Rv[i] += RtR[i][j] * v[j]
+            spectral_norm = 0.0
+            for i in range(out_features):
+                spectral_norm += Rv[i] * Rv[i]
+            spectral_norm = sqrt(spectral_norm)
+            if spectral_norm > 1e-12:
+                for i in range(out_features):
+                    v[i] = Rv[i] / spectral_norm
+
+        if spectral_norm < 1e-12:
+            spectral_norm = 1e-12
+
+        var scale = sqrt(delta) / sqrt(spectral_norm)
         var RtR_update = zeros_mat(out_features, out_features)
         for i in range(out_features):
             for j in range(out_features):
