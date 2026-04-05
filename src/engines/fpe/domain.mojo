@@ -108,6 +108,6 @@ struct FPEDomain(Copyable, Movable):
     def build_basis(self) -> TensorProductBasis[3, 3]:
         var b_s = BSplineBasis[3](self.s_knots.copy())
         var b_v = BSplineBasis[3](self.v_knots.copy())
-        var r_s = RecombinationBasis[3](b_s^, left_cond="dirichlet", right_cond="newmann")
-        var r_v = RecombinationBasis[3](b_v^, left_cond="dirichlet", right_cond="newmann")
+        var r_s = RecombinationBasis[3](b_s^, left_cond="dirichlet", right_cond="neumann")
+        var r_v = RecombinationBasis[3](b_v^, left_cond="dirichlet", right_cond="neumann")
         return TensorProductBasis[3, 3](basis_s=r_s^, basis_v=r_v^)

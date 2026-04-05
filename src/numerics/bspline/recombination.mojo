@@ -14,7 +14,7 @@ struct RecombinationBasis[degree: Int](Copyable, Movable):
         out self,
         var basis: BSplineBasis[Self.degree],
         left_cond: String = "dirichlet",
-        right_cond: String = "newmann",
+        right_cond: String = "neumann",
     ):
         self.basis = basis^
         self.left_cond = left_cond
@@ -41,21 +41,21 @@ struct RecombinationBasis[degree: Int](Copyable, Movable):
             for j in range(ncols):
                 out.append(j + 1, j, 1.0)
 
-        elif self.left_cond == "newmann" and self.right_cond == "dirichlet":
+        elif self.left_cond == "neumann" and self.right_cond == "dirichlet":
             # Remove last only; add +1 in top-left corner.
             for j in range(ncols):
                 out.append(j + 1, j, 1.0)
             if ncols > 0:
                 out.append(0, 0, 1.0)
 
-        elif self.left_cond == "dirichlet" and self.right_cond == "newmann":
+        elif self.left_cond == "dirichlet" and self.right_cond == "neumann":
             # Remove first only; add +1 in bottom-right corner.
             for j in range(ncols):
                 out.append(j, j, 1.0)
             if ncols > 0:
                 out.append(n - 1, ncols - 1, 1.0)
 
-        elif self.left_cond == "newmann" and self.right_cond == "newmann":
+        elif self.left_cond == "neumann" and self.right_cond == "neumann":
             # Keep all and add +1 in both corners.
             for j in range(n):
                 out.append(j, j, 1.0)
@@ -65,6 +65,7 @@ struct RecombinationBasis[degree: Int](Copyable, Movable):
 
         else:
             # Fallback to dirichlet-dirichlet behavior for unknown strings.
+            # TODO: Should raise an error instead of silently falling back.
             for j in range(ncols):
                 out.append(j + 1, j, 1.0)
 
