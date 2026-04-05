@@ -22,6 +22,11 @@ def _uniform_pdf(n_s: Int, n_v: Int) -> List[List[Float64]]:
 
 
 def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64):
+    """Seed the pricing engine with a uniform PDF grid as placeholder.
+    
+    In production, this should be replaced with actual FPE solution from
+    py_solve_fpe() which solves the FPE and caches the real PDF.
+    """
     var s_points: List[Float64] = [80.0, 90.0, 100.0, 110.0, 120.0]
     var v_points: List[Float64] = [0.02, 0.05, 0.1, 0.2, 0.4]
     var ds: List[Float64] = []
@@ -32,17 +37,18 @@ def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64):
 
 
 def _param_hash(params: HestonParams) -> UInt64:
-    var raw = (
-        params.kappa * 1_000_000.0
-        + params.theta * 10_000_000.0
-        + params.sigma * 100_000_000.0
-        + (params.rho + 1.0) * 1_000_000_000.0
-        + params.r * 10_000_000_000.0
-        + params.T * 100_000_000_000.0
-        + params.S0 * 10_000.0
-        + params.V0 * 1_000_000.0
-    )
-    return UInt64(Int(raw))
+    """Hash of Heston parameters using bit-mixing for better distribution."""
+    var h: UInt64 = 5381
+    # Mix each parameter's bits into the hash
+    h = ((h << 5) + h) ^ UInt64(Int(params.kappa * 1e6))
+    h = ((h << 5) + h) ^ UInt64(Int(params.theta * 1e7))
+    h = ((h << 5) + h) ^ UInt64(Int(params.sigma * 1e8))
+    h = ((h << 5) + h) ^ UInt64(Int((params.rho + 1.0) * 1e9))
+    h = ((h << 5) + h) ^ UInt64(Int(params.r * 1e10))
+    h = ((h << 5) + h) ^ UInt64(Int(params.T * 1e11))
+    h = ((h << 5) + h) ^ UInt64(Int(params.S0 * 1e4))
+    h = ((h << 5) + h) ^ UInt64(Int(params.V0 * 1e6))
+    return h
 
 
 def py_price_single(
