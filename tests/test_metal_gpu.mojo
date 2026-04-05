@@ -7,6 +7,7 @@ Run: pixi run gpu-test
 """
 from std.sys import has_accelerator, has_apple_gpu_accelerator
 from std.gpu.host import DeviceContext
+from gpu_utils.host_utils import create_device_context
 from std.testing import assert_true, TestSuite
 
 
@@ -17,14 +18,14 @@ def test_gpu_detection() raises:
 
 
 def test_device_context() raises:
-    """Test Metal DeviceContext creation."""
-    var ctx = DeviceContext(api="metal")
+    """Test DeviceContext creation via automatic backend detection."""
+    var ctx = create_device_context()
     assert_true(True)
 
 
 def test_buffer_roundtrip() raises:
-    """Test buffer roundtrip on Metal."""
-    var ctx = DeviceContext(api="metal")
+    """Test buffer roundtrip on GPU."""
+    var ctx = create_device_context()
     comptime N = 8
     
     var host_buf = ctx.enqueue_create_host_buffer[DType.float32](N)
@@ -47,7 +48,7 @@ def test_buffer_roundtrip() raises:
 
 def test_large_buffer() raises:
     """Test large buffer allocation (100MB)."""
-    var ctx = DeviceContext(api="metal")
+    var ctx = create_device_context()
     var n_large = 25_000_000
     var large_buf = ctx.enqueue_create_buffer[DType.float32](n_large)
     ctx.synchronize()

@@ -144,6 +144,8 @@ struct Pricer[B: Int]:
         
         Transfers PDF grid and option parameters to GPU, launches one thread
         per option, and copies results back. Falls back to CPU on error.
+        
+        Uses create_device_context() for automatic backend detection.
         """
         comptime if has_accelerator():
             from std.gpu.host import DeviceContext
@@ -151,11 +153,14 @@ struct Pricer[B: Int]:
                 payoff_integration_kernel,
                 PRICER_DTYPE, PRICER_VEC_LAYOUT, PRICER_MAX_OPTIONS,
             )
+            from gpu_utils.host_utils import create_device_context
             from std.sys import has_apple_gpu_accelerator
             from layout import LayoutTensor
+            from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, CUDA_DTYPE, CUDA_VEC_LAYOUT
             
             try:
-                var ctx = DeviceContext(api="metal")
+                # Use automatic backend detection - no hardcoded API strings
+                var ctx = create_device_context()
                 var n_s = len(grid.s_points)
                 var n_v = len(grid.v_points)
                 var n_options = len(requests)
@@ -164,12 +169,11 @@ struct Pricer[B: Int]:
                 if n_options > PRICER_MAX_OPTIONS:
                     return self._price_cpu_parallel(grid, requests)
                 
-                # Flatten PDF grid with proper padding
+                # Metal path
                 comptime if has_apple_gpu_accelerator():
                     var pdf_flat: List[Float32] = []
                     for i in range(n_s * n_v):
                         pdf_flat.append(Float32(0.0))
-                    
                     var s_flat: List[Float32] = []
                     var v_flat: List[Float32] = []
                     var ds_flat: List[Float32] = []
@@ -177,31 +181,23 @@ struct Pricer[B: Int]:
                     var k_flat: List[Float32] = []
                     var bar_flat: List[Float32] = []
                     var price_flat: List[Float32] = []
-                    
                     for _ in range(PRICER_MAX_OPTIONS):
                         k_flat.append(Float32(0.0))
                         bar_flat.append(Float32(0.0))
                         price_flat.append(Float32(0.0))
-                    
-                    # Fill PDF data
                     for i in range(n_s):
                         for j in range(n_v):
                             pdf_flat[i * n_v + j] = Float32(grid.pdf[i][j])
-                    
-                    # Fill grid points
                     for i in range(n_s):
                         s_flat.append(Float32(grid.s_points[i]))
-                        ds_flat.append(Float32(1.0))  # Simplified weights
+                        ds_flat.append(Float32(1.0))
                     for i in range(n_v):
                         v_flat.append(Float32(grid.v_points[i]))
                         dv_flat.append(Float32(1.0))
-                    
-                    # Fill option parameters
                     for i in range(n_options):
                         k_flat[i] = Float32(requests[i].K)
                         bar_flat[i] = Float32(requests[i].barrier)
                     
-                    # Create host buffers
                     var pdf_host = ctx.enqueue_create_host_buffer[DType.float32](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
                     var s_host = ctx.enqueue_create_host_buffer[DType.float32](PRICER_MAX_OPTIONS)
                     var v_host = ctx.enqueue_create_host_buffer[DType.float32](PRICER_MAX_OPTIONS)
@@ -211,8 +207,6 @@ struct Pricer[B: Int]:
                     var bar_host = ctx.enqueue_create_host_buffer[DType.float32](PRICER_MAX_OPTIONS)
                     var price_host = ctx.enqueue_create_host_buffer[DType.float32](PRICER_MAX_OPTIONS)
                     ctx.synchronize()
-                    
-                    # Copy data to host buffers
                     for i in range(n_s * n_v):
                         if i < PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS:
                             pdf_host[i] = pdf_flat[i]
@@ -226,7 +220,6 @@ struct Pricer[B: Int]:
                         k_host[i] = k_flat[i]
                         bar_host[i] = bar_flat[i]
                     
-                    # Create device buffers
                     var pdf_dev = ctx.enqueue_create_buffer[DType.float32](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
                     var s_dev = ctx.enqueue_create_buffer[DType.float32](PRICER_MAX_OPTIONS)
                     var v_dev = ctx.enqueue_create_buffer[DType.float32](PRICER_MAX_OPTIONS)
@@ -235,8 +228,6 @@ struct Pricer[B: Int]:
                     var k_dev = ctx.enqueue_create_buffer[DType.float32](PRICER_MAX_OPTIONS)
                     var bar_dev = ctx.enqueue_create_buffer[DType.float32](PRICER_MAX_OPTIONS)
                     var price_dev = ctx.enqueue_create_buffer[DType.float32](PRICER_MAX_OPTIONS)
-                    
-                    # Copy to device
                     ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
                     ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
                     ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
@@ -246,17 +237,15 @@ struct Pricer[B: Int]:
                     ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
                     ctx.synchronize()
                     
-                    # Create LayoutTensors
-                    var pdf_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](pdf_dev)
-                    var s_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](s_dev)
-                    var v_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](v_dev)
-                    var ds_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](ds_dev)
-                    var dv_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](dv_dev)
-                    var k_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](k_dev)
-                    var bar_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](bar_dev)
-                    var price_tensor = LayoutTensor[DType.float32, PRICER_VEC_LAYOUT](price_dev)
+                    var pdf_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](pdf_dev)
+                    var s_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](s_dev)
+                    var v_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](v_dev)
+                    var ds_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](ds_dev)
+                    var dv_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](dv_dev)
+                    var k_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](k_dev)
+                    var bar_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](bar_dev)
+                    var price_tensor = LayoutTensor[DType.float32, METAL_VEC_LAYOUT](price_dev)
                     
-                    # Launch kernel
                     ctx.enqueue_function[payoff_integration_kernel, payoff_integration_kernel](
                         pdf_tensor, s_tensor, v_tensor, ds_tensor, dv_tensor,
                         k_tensor, bar_tensor, price_tensor,
@@ -264,20 +253,108 @@ struct Pricer[B: Int]:
                         grid_dim=n_options, block_dim=256,
                     )
                     ctx.synchronize()
-                    
-                    # Copy results back
                     ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
                     ctx.synchronize()
                     
-                    # Build results
                     var results: List[PricingResult] = []
                     for i in range(n_options):
                         results.append(PricingResult(
                             price=Float64(price_host[i]),
-                            delta=0.0,  # GPU Greeks not yet implemented
-                            gamma=0.0,
-                            vega=0.0,
-                            success=True,
+                            delta=0.0, gamma=0.0, vega=0.0, success=True,
+                        ))
+                    return results^
+                else:
+                    # CUDA/HIP path
+                    var pdf_flat: List[Float64] = []
+                    for i in range(n_s * n_v):
+                        pdf_flat.append(0.0)
+                    var s_flat: List[Float64] = []
+                    var v_flat: List[Float64] = []
+                    var ds_flat: List[Float64] = []
+                    var dv_flat: List[Float64] = []
+                    var k_flat: List[Float64] = []
+                    var bar_flat: List[Float64] = []
+                    var price_flat: List[Float64] = []
+                    for _ in range(PRICER_MAX_OPTIONS):
+                        k_flat.append(0.0)
+                        bar_flat.append(0.0)
+                        price_flat.append(0.0)
+                    for i in range(n_s):
+                        for j in range(n_v):
+                            pdf_flat[i * n_v + j] = grid.pdf[i][j]
+                    for i in range(n_s):
+                        s_flat.append(grid.s_points[i])
+                        ds_flat.append(1.0)
+                    for i in range(n_v):
+                        v_flat.append(grid.v_points[i])
+                        dv_flat.append(1.0)
+                    for i in range(n_options):
+                        k_flat[i] = requests[i].K
+                        bar_flat[i] = requests[i].barrier
+                    
+                    var pdf_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
+                    var s_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var v_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var ds_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var dv_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var k_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var bar_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var price_host = ctx.enqueue_create_host_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    ctx.synchronize()
+                    for i in range(n_s * n_v):
+                        if i < PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS:
+                            pdf_host[i] = pdf_flat[i]
+                    for i in range(n_s):
+                        s_host[i] = s_flat[i]
+                        ds_host[i] = ds_flat[i]
+                    for i in range(n_v):
+                        v_host[i] = v_flat[i]
+                        dv_host[i] = dv_flat[i]
+                    for i in range(n_options):
+                        k_host[i] = k_flat[i]
+                        bar_host[i] = bar_flat[i]
+                    
+                    var pdf_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
+                    var s_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var v_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var ds_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var dv_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var k_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var bar_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    var price_dev = ctx.enqueue_create_buffer[DType.float64](PRICER_MAX_OPTIONS)
+                    ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
+                    ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
+                    ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
+                    ctx.enqueue_copy(dst_buf=ds_dev, src_buf=ds_host)
+                    ctx.enqueue_copy(dst_buf=dv_dev, src_buf=dv_host)
+                    ctx.enqueue_copy(dst_buf=k_dev, src_buf=k_host)
+                    ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
+                    ctx.synchronize()
+                    
+                    var pdf_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](pdf_dev)
+                    var s_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](s_dev)
+                    var v_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](v_dev)
+                    var ds_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](ds_dev)
+                    var dv_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](dv_dev)
+                    var k_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](k_dev)
+                    var bar_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](bar_dev)
+                    var price_tensor = LayoutTensor[DType.float64, CUDA_VEC_LAYOUT](price_dev)
+                    
+                    ctx.enqueue_function[payoff_integration_kernel, payoff_integration_kernel](
+                        pdf_tensor, s_tensor, v_tensor, ds_tensor, dv_tensor,
+                        k_tensor, bar_tensor, price_tensor,
+                        n_s, n_v, n_options,
+                        grid_dim=n_options, block_dim=256,
+                    )
+                    ctx.synchronize()
+                    ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
+                    ctx.synchronize()
+                    
+                    var results: List[PricingResult] = []
+                    for i in range(n_options):
+                        results.append(PricingResult(
+                            price=Float64(price_host[i]),
+                            delta=0.0, gamma=0.0, vega=0.0, success=True,
                         ))
                     return results^
             except:
