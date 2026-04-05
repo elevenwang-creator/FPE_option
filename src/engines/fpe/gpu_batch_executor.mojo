@@ -8,7 +8,9 @@ Backend detection:
 - Other GPU → Generic DeviceContext()
 - No GPU → Falls back to CPU explicit Euler
 
-Metal uses Float32 (Metal doesn't support Float64 kernels).
+Dtype selection: Automatically uses gpu_utils.dtype module constants
+with ternary expressions for true "write once, deploy anywhere".
+
 Requires: --target-accelerator=metal:1 (or equivalent for CUDA/HIP)
 
 Usage:
@@ -20,18 +22,26 @@ Usage:
 """
 
 from engines.fpe.gpu_batch_kernels import batch_euler_step
-from gpu_utils.detect import is_gpu_available, get_device_api_name
+from gpu_utils.detect import is_gpu_available
 from gpu_utils.host_utils import create_device_context
+from gpu_utils.dtype import (
+    METAL_DTYPE, METAL_MAT_LAYOUT, METAL_VEC_LAYOUT, METAL_MAX_N,
+    CUDA_DTYPE, CUDA_MAT_LAYOUT, CUDA_VEC_LAYOUT, CUDA_MAX_N,
+    is_float32_backend,
+)
 from sparse.csr import CSRMatrix
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
-from layout import Layout, LayoutTensor
+from layout import LayoutTensor
 from numerics.utils import zeros
+from std.sys import has_apple_gpu_accelerator
 
 
-# Comptime layout sizes for GPU kernels (Metal requires comptime layouts)
-comptime GPU_MAX_N = 64
-comptime GPU_MAT_LAYOUT = Layout.row_major(GPU_MAX_N, GPU_MAX_N)
-comptime GPU_VEC_LAYOUT = Layout.row_major(GPU_MAX_N)
+# Backend-specific types - automatically selected via ternary expressions
+# Same pattern as gpu_batch_kernels.mojo for consistency
+comptime GPU_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
+comptime GPU_MAT_LAYOUT = METAL_MAT_LAYOUT if has_apple_gpu_accelerator() else CUDA_MAT_LAYOUT
+comptime GPU_VEC_LAYOUT = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
+comptime GPU_MAX_N = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
 
 
 def _csr_to_dense_float(A: CSRMatrix[DType.float64]) -> List[List[Float64]]:
@@ -95,8 +105,7 @@ def gpu_batch_solve(
     """Solve batch of ODE systems on GPU using explicit Euler.
 
     Uses runtime dispatch for GPU detection.
-    Each batch element gets its own double-buffered device buffers.
-    Metal backend uses Float32 (Metal doesn't support Float64 kernels).
+    Dtype is automatically selected per backend via gpu_utils.dtype module.
 
     Args:
         neg_M_inv_K: Pre-computed -M⁻¹K matrix (shared across batch)
@@ -109,6 +118,17 @@ def gpu_batch_solve(
         State vectors at final time, shape [batch_size, num_states]
     """
     var n = len(q0)
+    
+    # Bounds check: GPU kernel has fixed maximum size from dtype module
+    if n > GPU_MAX_N:
+        # Fall back to CPU for large matrices
+        var results: List[List[Float64]] = []
+        for b in range(batch_size):
+            var q = _cpu_euler_solve(_csr_to_dense_float(neg_M_inv_K), q0, t_end, num_steps)
+            results.append(q^)
+        _project_nonnegative(results)
+        return results^
+    
     var mat_dense = _csr_to_dense_float(neg_M_inv_K)
     var dt = t_end / Float64(num_steps)
 
@@ -135,85 +155,117 @@ def _gpu_batch_solve_impl(
 ) raises -> List[List[Float64]]:
     """Actual GPU batch solve implementation with double-buffering.
 
-    Uses Float32 for Metal compatibility. Each batch element gets its own
-    pair of device buffers (q_in, q_out) with no race conditions.
+    Uses backend-appropriate dtype from gpu_utils.dtype module.
+    Each batch element gets its own pair of device buffers (q_in, q_out) with no race conditions.
     """
     var ctx = create_device_context()
 
-    # Convert matrix to Float32 for Metal
-    var mat_flat: List[Float32] = []
-    for i in range(n):
-        for j in range(n):
-            mat_flat.append(Float32(mat_dense[i][j]))
-
-    # Convert q0 to Float32
-    var q0_flat: List[Float32] = []
-    for i in range(n):
-        q0_flat.append(Float32(q0[i]))
-
-    # Create host buffers (padded to comptime size)
-    var mat_host = ctx.enqueue_create_host_buffer[DType.float32](GPU_MAX_N * GPU_MAX_N)
-    var q_in_host = ctx.enqueue_create_host_buffer[DType.float32](GPU_MAX_N)
-    var q_out_host = ctx.enqueue_create_host_buffer[DType.float32](GPU_MAX_N)
-    ctx.synchronize()
-
-    # Copy matrix to host buffer
-    for i in range(n * n):
-        mat_host[i] = mat_flat[i]
-
-    # Create device buffers
-    var mat_dev = ctx.enqueue_create_buffer[DType.float32](GPU_MAX_N * GPU_MAX_N)
-    var q_in_dev = ctx.enqueue_create_buffer[DType.float32](GPU_MAX_N)
-    var q_out_dev = ctx.enqueue_create_buffer[DType.float32](GPU_MAX_N)
-
-    # Copy to device
-    ctx.enqueue_copy(dst_buf=mat_dev, src_buf=mat_host)
-    ctx.synchronize()
-
-    # Create LayoutTensor views with comptime layouts
-    var mat_tensor = LayoutTensor[DType.float32, GPU_MAT_LAYOUT](mat_dev)
-    var q_in_tensor = LayoutTensor[DType.float32, GPU_VEC_LAYOUT](q_in_dev)
-    var q_out_tensor = LayoutTensor[DType.float32, GPU_VEC_LAYOUT](q_out_dev)
-
-    # Process each batch element
-    var results: List[List[Float64]] = []
-    for b in range(batch_size):
-        # Copy initial condition to host buffer
+    # Use dtype management module for all type selection
+    comptime if is_float32_backend():
+        # Metal: Float32
+        var mat_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N * GPU_MAX_N)
+        var q_in_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
+        var q_out_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
+        ctx.synchronize()
+        
+        # Copy matrix with proper padding for LayoutTensor stride
+        for i in range(GPU_MAX_N):
+            for j in range(GPU_MAX_N):
+                if i < n and j < n:
+                    mat_host[i * GPU_MAX_N + j] = Float32(mat_dense[i][j])
+                else:
+                    mat_host[i * GPU_MAX_N + j] = Float32(0.0)
+        
+        # Copy initial condition
         for i in range(n):
-            q_in_host[i] = q0_flat[i]
-
-        # Copy to device
+            q_in_host[i] = Float32(q0[i])
+        for i in range(n, GPU_MAX_N):
+            q_in_host[i] = Float32(0.0)
+        
+        var mat_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N * GPU_MAX_N)
+        var q_in_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
+        var q_out_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
+        
+        ctx.enqueue_copy(dst_buf=mat_dev, src_buf=mat_host)
         ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_in_host)
         ctx.synchronize()
-
-        # Launch GPU kernel for all time steps
-        var step = 0
-        while step < num_steps:
-            ctx.enqueue_function[
-                batch_euler_step,
-                batch_euler_step,
-            ](
-                mat_tensor,
-                q_in_tensor,
-                q_out_tensor,
-                n,
-                Float32(dt),
-                grid_dim=n,
-                block_dim=256,
-            )
-            # Swap: copy q_out to q_in for next step
-            ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_out_dev)
-            step += 1
-
-        # Copy result back
-        ctx.enqueue_copy(dst_buf=q_out_host, src_buf=q_out_dev)
+        
+        var mat_tensor = LayoutTensor[METAL_DTYPE, GPU_MAT_LAYOUT](mat_dev)
+        var q_in_tensor = LayoutTensor[METAL_DTYPE, GPU_VEC_LAYOUT](q_in_dev)
+        var q_out_tensor = LayoutTensor[METAL_DTYPE, GPU_VEC_LAYOUT](q_out_dev)
+        
+        var results: List[List[Float64]] = []
+        for b in range(batch_size):
+            var step = 0
+            while step < num_steps:
+                ctx.enqueue_function[batch_euler_step, batch_euler_step](
+                    mat_tensor, q_in_tensor, q_out_tensor, n, Float32(dt),
+                    grid_dim=n, block_dim=256,
+                )
+                ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_out_dev)
+                step += 1
+            
+            ctx.enqueue_copy(dst_buf=q_out_host, src_buf=q_out_dev)
+            ctx.synchronize()
+            
+            var row: List[Float64] = []
+            for i in range(n):
+                row.append(Float64(q_out_host[i]))
+            results.append(row^)
+        
+        _project_nonnegative(results)
+        return results^
+    else:
+        # CUDA/HIP/CPU: Float64
+        var mat_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N * GPU_MAX_N)
+        var q_in_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
+        var q_out_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
         ctx.synchronize()
-
-        # Read result (convert Float32 → Float64)
-        var row: List[Float64] = []
+        
+        # Copy matrix with proper padding for LayoutTensor stride
+        for i in range(GPU_MAX_N):
+            for j in range(GPU_MAX_N):
+                if i < n and j < n:
+                    mat_host[i * GPU_MAX_N + j] = mat_dense[i][j]
+                else:
+                    mat_host[i * GPU_MAX_N + j] = Float64(0.0)
+        
+        # Copy initial condition
         for i in range(n):
-            row.append(Float64(q_out_host[i]))
-        results.append(row^)
-
-    _project_nonnegative(results)
-    return results^
+            q_in_host[i] = q0[i]
+        for i in range(n, GPU_MAX_N):
+            q_in_host[i] = Float64(0.0)
+        
+        var mat_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N * GPU_MAX_N)
+        var q_in_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
+        var q_out_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
+        
+        ctx.enqueue_copy(dst_buf=mat_dev, src_buf=mat_host)
+        ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_in_host)
+        ctx.synchronize()
+        
+        var mat_tensor = LayoutTensor[CUDA_DTYPE, GPU_MAT_LAYOUT](mat_dev)
+        var q_in_tensor = LayoutTensor[CUDA_DTYPE, GPU_VEC_LAYOUT](q_in_dev)
+        var q_out_tensor = LayoutTensor[CUDA_DTYPE, GPU_VEC_LAYOUT](q_out_dev)
+        
+        var results: List[List[Float64]] = []
+        for b in range(batch_size):
+            var step = 0
+            while step < num_steps:
+                ctx.enqueue_function[batch_euler_step, batch_euler_step](
+                    mat_tensor, q_in_tensor, q_out_tensor, n, dt,
+                    grid_dim=n, block_dim=256,
+                )
+                ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_out_dev)
+                step += 1
+            
+            ctx.enqueue_copy(dst_buf=q_out_host, src_buf=q_out_dev)
+            ctx.synchronize()
+            
+            var row: List[Float64] = []
+            for i in range(n):
+                row.append(q_out_host[i])
+            results.append(row^)
+        
+        _project_nonnegative(results)
+        return results^
