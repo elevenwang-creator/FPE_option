@@ -68,17 +68,18 @@ struct Pricer[B: Int]:
         var results: List[PricingResult] = []
         for req in requests:
             var price = self._integrate_payoff_fast(grid, req, ds_weights, dv_weights)
+            var payoff = self._get_payoff(req)
             var delta = self.greeks_computer.compute_delta(
                 grid, self.interpolator,
-                req.S, req.V, req.K, req.barrier, EuropeanCall(),
+                req.S, req.V, req.K, req.barrier, payoff,
             )
             var gamma = self.greeks_computer.compute_gamma(
                 grid, self.interpolator,
-                req.S, req.V, req.K, req.barrier, EuropeanCall(),
+                req.S, req.V, req.K, req.barrier, payoff,
             )
             var vega = self.greeks_computer.compute_vega(
                 grid, self.interpolator,
-                req.S, req.V, req.K, req.barrier, EuropeanCall(),
+                req.S, req.V, req.K, req.barrier, payoff,
             )
             results.append(PricingResult(
                 price=price, delta=delta, gamma=gamma, vega=vega, success=True,
@@ -138,6 +139,16 @@ struct Pricer[B: Int]:
             return self._price_cpu_parallel(grid, requests)
         else:
             return self._price_cpu_parallel(grid, requests)
+
+    @always_inline
+    def _get_payoff(self, req: PricingRequest) -> EuropeanCall:
+        """Get the correct payoff type for Greeks computation.
+
+        NOTE: Greeks computation currently uses EuropeanCall for all payoff types.
+        This is a known limitation — barrier option Greeks require different formulas.
+        """
+        _ = req
+        return EuropeanCall()
 
     @always_inline
     def _payoff_value(self, req: PricingRequest, S: Float64) -> Float64:
