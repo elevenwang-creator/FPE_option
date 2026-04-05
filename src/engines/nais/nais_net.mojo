@@ -331,6 +331,7 @@ struct NaisNet(Copyable, Movable):
         var out_dim = len(layer.b)
 
         if use_external:
+            # Use pre-recorded parameter indices with proper offset tracking
             var W_idx: List[Int] = []
             for i in range(in_dim):
                 for j in range(out_dim):

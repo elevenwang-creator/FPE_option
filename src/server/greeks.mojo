@@ -33,11 +33,24 @@ struct Greeks[B: Int](Copyable, Movable):
         barrier: Float64,
         payoff: EuropeanCall,
     ) -> Float64:
-        """Compute price proxy = density(S,V) × payoff(S,K) at a single point."""
+        """Compute option price via numerical integration over the PDF grid.
+
+        Price = ∫∫ payoff(S', K) × pdf(S', V') dS' dV'
+        Uses the pre-computed trapezoidal weights for efficient integration.
+        """
         _ = self
-        var density = interp.interpolate(grid, S, V)
-        var payoff_value = payoff.evaluate(S, K, barrier)
-        return density * payoff_value
+        _ = interp
+        _ = S
+        _ = V
+
+        var price = 0.0
+        for i in range(len(grid.s_points)):
+            for j in range(len(grid.v_points)):
+                var s_val = grid.s_points[i]
+                var v_val = grid.v_points[j]
+                var payoff_val = payoff.evaluate(s_val, K, barrier)
+                price += grid.pdf[i][j] * payoff_val * grid.ds_weights[i] * grid.dv_weights[j]
+        return price
 
     def compute_delta(
         self,
