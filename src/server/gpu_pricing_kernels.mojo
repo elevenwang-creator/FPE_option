@@ -68,7 +68,7 @@ def payoff_integration_kernel(
         if payoff > 0.0:
             var j = 0
             while j < n_v:
-                var pdf_val = rebind[Scalar[PRICER_DTYPE]](pdf[i * PRICER_MAX_N + j])
+                var pdf_val = rebind[Scalar[PRICER_DTYPE]](pdf[i * PRICER_MAX_OPTIONS + j])
                 var dv_w = rebind[Scalar[PRICER_DTYPE]](dv_weights[j])
                 price = price + payoff * pdf_val * ds_w * dv_w
                 j += 1

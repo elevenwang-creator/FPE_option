@@ -36,7 +36,7 @@ def nais_forward_kernel(
     - outputs: [batch_size, 1 + phi_dim] row-major
     """
     var b = global_idx.x
-    if b >= UInt(batch_size):
+    if Int(b) >= batch_size:
         return
 
     var idx = Int(b)
