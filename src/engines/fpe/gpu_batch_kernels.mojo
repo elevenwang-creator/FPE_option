@@ -8,7 +8,7 @@ CUDA/HIP backend: Can use Float64.
 
 Kernel constraints:
 - nonraising (no exceptions on GPU)
-- LayoutTensor for all parameters
+- LayoutTensor for all parameters with concrete comptime layouts
 - No print statements (Apple Silicon limitation)
 """
 
@@ -16,13 +16,17 @@ from std.gpu import global_idx
 from layout import Layout, LayoutTensor
 
 
-def batch_euler_step[
-    mat_layout: Layout,
-    vec_layout: Layout,
-](
-    mat: LayoutTensor[DType.float32, mat_layout, MutAnyOrigin],
-    q_in: LayoutTensor[DType.float32, vec_layout, MutAnyOrigin],
-    q_out: LayoutTensor[DType.float32, vec_layout, MutAnyOrigin],
+# Concrete comptime layouts for GPU kernels
+# These must match the layouts used in gpu_batch_executor.mojo
+comptime KERNEL_MAX_N = 64
+comptime KERNEL_MAT_LAYOUT = Layout.row_major(KERNEL_MAX_N, KERNEL_MAX_N)
+comptime KERNEL_VEC_LAYOUT = Layout.row_major(KERNEL_MAX_N)
+
+
+def batch_euler_step(
+    mat: LayoutTensor[DType.float32, KERNEL_MAT_LAYOUT, MutAnyOrigin],
+    q_in: LayoutTensor[DType.float32, KERNEL_VEC_LAYOUT, MutAnyOrigin],
+    q_out: LayoutTensor[DType.float32, KERNEL_VEC_LAYOUT, MutAnyOrigin],
     n: Int,
     dt: Float32,
 ):
@@ -48,8 +52,12 @@ def batch_euler_step[
         var dq_r: Scalar[DType.float32] = 0.0
         var j = 0
         while j < n:
-            dq_r = dq_r + mat[r * n + j] * q_in[j]
+            var mat_val = rebind[Scalar[DType.float32]](mat[r, j])
+            var q_val = rebind[Scalar[DType.float32]](q_in[j])
+            dq_r = dq_r + mat_val * q_val
             j += 1
 
         # Euler update: q_out[r] = q_in[r] + dt * dq[r] (write to output buffer)
-        q_out[r] = q_in[r] + dt * dq_r
+        var dt_scalar = rebind[Scalar[DType.float32]](dt)
+        var q_in_val = rebind[Scalar[DType.float32]](q_in[r])
+        q_out[r] = rebind[q_out.element_type](q_in_val + dt_scalar * dq_r)

@@ -191,7 +191,7 @@ def _gpu_batch_solve_impl(
         while step < num_steps:
             ctx.enqueue_function[
                 batch_euler_step,
-                batch_euler_step[GPU_MAT_LAYOUT, GPU_VEC_LAYOUT],
+                batch_euler_step,
             ](
                 mat_tensor,
                 q_in_tensor,
