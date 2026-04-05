@@ -125,32 +125,33 @@ struct PDFCache:
         return param_hash in self.grids
 
     def save_to_disk(self, path: String) raises -> Bool:
-        """Serialize cached PDF grids to disk using Python pickle."""
-        var pickle = Python.import_module("pickle")
+        """Serialize cached PDF grids to disk using Python json (safe, no code execution)."""
+        var json_mod = Python.import_module("json")
         var builtins = Python.import_module("builtins")
         var data = Python.dict()
         for entry in self.grids.items():
             var key_int = Int(py=PythonObject(entry.key))
             data[key_int] = entry.value.to_python_object()
 
-        var filepath = path + "/fpe_pdf_cache.pkl"
+        var filepath = path + "/fpe_pdf_cache.json"
         try:
-            var f = builtins.open(String(filepath), "wb")
-            pickle.dump(data, f)
+            var f = builtins.open(String(filepath), "w")
+            f.write(String(py=json_mod.dumps(data)))
             f.close()
             return True
         except e:
             return False
 
     def load_from_disk(mut self, path: String) raises -> Bool:
-        """Deserialize PDF grids from disk."""
-        var pickle = Python.import_module("pickle")
+        """Deserialize PDF grids from disk using Python json (safe, no code execution)."""
+        var json_mod = Python.import_module("json")
         var builtins = Python.import_module("builtins")
-        var filepath = path + "/fpe_pdf_cache.pkl"
+        var filepath = path + "/fpe_pdf_cache.json"
         try:
-            var f = builtins.open(String(filepath), "rb")
-            var data = pickle.load(f)
+            var f = builtins.open(String(filepath), "r")
+            var content = f.read()
             f.close()
+            var data = json_mod.loads(String(py=content))
             for key_int in data:
                 var key = UInt64(Int(py=key_int))
                 var grid = PDFGrid.from_python_object(data[key_int])
