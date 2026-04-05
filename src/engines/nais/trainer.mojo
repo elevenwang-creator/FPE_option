@@ -293,8 +293,9 @@ struct Trainer[B: Int]:
                 plus[i] = plus[i] + eps
                 minus[i] = minus[i] - eps
 
-                var net_plus = NaisNet(in_dim=3, hidden=6, phi_dim=2)
-                var net_minus = NaisNet(in_dim=3, hidden=6, phi_dim=2)
+                # Create perturbed networks with SAME dimensions as input net
+                var net_plus = net.copy()
+                var net_minus = net.copy()
                 _unflatten_net_params(plus, net_plus)
                 _unflatten_net_params(minus, net_minus)
 
