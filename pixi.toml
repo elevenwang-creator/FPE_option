@@ -1,18 +1,22 @@
-[project]
+[workspace]
 name = "fpe-engine"
 version = "0.1.0"
 description = "FPE Option Pricing Engine — Mojo + MAX AI Kernels"
-channels = ["https://conda.modular.com/max", "conda-forge"]
+channels = [
+    "https://conda.modular.com/max-nightly",
+    "conda-forge"
+]
 platforms = ["osx-arm64", "linux-64"]
 
 [dependencies]
-max = ">=26.2.0,<26.3"
-mojo = ">=0.26.2,<0.27"
+max = "==26.3.0.dev2026040405"
+mojo = "==0.26.3.0.dev2026040405"
 matplotlib = ">=3.10.8,<4"
 scipy = ">=1.17.1,<2"
 numpy = ">=2.4.3,<3"
 
 [tasks]
 build = "mojo build src/"
-test = "mojo test tests/"
+test = "mojo run -I src tests/test_sparse.mojo"
 bench = "mojo run benchmarks/"
+gpu-test = "mojo run --target-accelerator=metal:1 tests/test_metal_gpu.mojo"

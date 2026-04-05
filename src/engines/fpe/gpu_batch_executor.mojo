@@ -8,6 +8,9 @@ Backend detection:
 - Other GPU → Generic DeviceContext()
 - No GPU → Falls back to CPU explicit Euler
 
+Metal uses Float32 (Metal doesn't support Float64 kernels).
+Requires: --target-accelerator=metal:1 (or equivalent for CUDA/HIP)
+
 Usage:
     from engines.fpe.gpu_batch_executor import gpu_batch_solve
     results = gpu_batch_solve(
@@ -21,14 +24,14 @@ from gpu_utils.detect import is_gpu_available, get_device_api_name
 from gpu_utils.host_utils import create_device_context
 from sparse.csr import CSRMatrix
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from layout import Layout, LayoutTensor
 from numerics.utils import zeros
 
-# NOTE: GPU kernel execution requires:
-# 1. Working Metal/CUDA/HIP compiler (Metal compiler broken in Mojo v0.26.2 on M1 Pro)
-# 2. LayoutTensor construction from DeviceBuffer (requires MLIR context)
-# Until these are resolved, GPU path falls back to CPU.
-# The kernel code in gpu_batch_kernels.mojo is correct and will work when
-# the toolchain issues are fixed.
+
+# Comptime layout sizes for GPU kernels (Metal requires comptime layouts)
+comptime GPU_MAX_N = 64
+comptime GPU_MAT_LAYOUT = Layout.row_major(GPU_MAX_N, GPU_MAX_N)
+comptime GPU_VEC_LAYOUT = Layout.row_major(GPU_MAX_N)
 
 
 def _csr_to_dense_float(A: CSRMatrix[DType.float64]) -> List[List[Float64]]:
@@ -91,9 +94,9 @@ def gpu_batch_solve(
 ) raises -> List[List[Float64]]:
     """Solve batch of ODE systems on GPU using explicit Euler.
 
-    Uses runtime dispatch (not comptime) for GPU detection.
+    Uses runtime dispatch for GPU detection.
     Each batch element gets its own double-buffered device buffers.
-    Synchronizes only once at the end for maximum GPU throughput.
+    Metal backend uses Float32 (Metal doesn't support Float64 kernels).
 
     Args:
         neg_M_inv_K: Pre-computed -M⁻¹K matrix (shared across batch)
@@ -109,19 +112,105 @@ def gpu_batch_solve(
     var mat_dense = _csr_to_dense_float(neg_M_inv_K)
     var dt = t_end / Float64(num_steps)
 
-    # Runtime dispatch (not comptime) for GPU detection
-    # NOTE: GPU kernel execution is currently unavailable due to:
-    # 1. Metal compiler bug in Mojo v0.26.2 on Apple Silicon
-    # 2. LayoutTensor requires MLIR context not available via simple API
-    # Falls back to CPU Euler solver which produces correct results.
     if is_gpu_available():
-        # GPU path would go here when toolchain is fixed
-        pass
+        return _gpu_batch_solve_impl(mat_dense, q0, t_end, batch_size, num_steps, n, dt)
+    else:
+        # CPU fallback
+        var results: List[List[Float64]] = []
+        for b in range(batch_size):
+            var q = _cpu_euler_solve(mat_dense, q0, t_end, num_steps)
+            results.append(q^)
+        _project_nonnegative(results)
+        return results^
 
-    # CPU fallback — always works
+
+def _gpu_batch_solve_impl(
+    mat_dense: List[List[Float64]],
+    q0: List[Float64],
+    t_end: Float64,
+    batch_size: Int,
+    num_steps: Int,
+    n: Int,
+    dt: Float64,
+) raises -> List[List[Float64]]:
+    """Actual GPU batch solve implementation with double-buffering.
+
+    Uses Float32 for Metal compatibility. Each batch element gets its own
+    pair of device buffers (q_in, q_out) with no race conditions.
+    """
+    var ctx = create_device_context()
+
+    # Convert matrix to Float32 for Metal
+    var mat_flat: List[Float32] = []
+    for i in range(n):
+        for j in range(n):
+            mat_flat.append(Float32(mat_dense[i][j]))
+
+    # Convert q0 to Float32
+    var q0_flat: List[Float32] = []
+    for i in range(n):
+        q0_flat.append(Float32(q0[i]))
+
+    # Create host buffers (padded to comptime size)
+    var mat_host = ctx.enqueue_create_host_buffer[DType.float32](GPU_MAX_N * GPU_MAX_N)
+    var q_in_host = ctx.enqueue_create_host_buffer[DType.float32](GPU_MAX_N)
+    var q_out_host = ctx.enqueue_create_host_buffer[DType.float32](GPU_MAX_N)
+    ctx.synchronize()
+
+    # Copy matrix to host buffer
+    for i in range(n * n):
+        mat_host[i] = mat_flat[i]
+
+    # Create device buffers
+    var mat_dev = ctx.enqueue_create_buffer[DType.float32](GPU_MAX_N * GPU_MAX_N)
+    var q_in_dev = ctx.enqueue_create_buffer[DType.float32](GPU_MAX_N)
+    var q_out_dev = ctx.enqueue_create_buffer[DType.float32](GPU_MAX_N)
+
+    # Copy to device
+    ctx.enqueue_copy(dst_buf=mat_dev, src_buf=mat_host)
+    ctx.synchronize()
+
+    # Create LayoutTensor views with comptime layouts
+    var mat_tensor = LayoutTensor[DType.float32, GPU_MAT_LAYOUT](mat_dev)
+    var q_in_tensor = LayoutTensor[DType.float32, GPU_VEC_LAYOUT](q_in_dev)
+    var q_out_tensor = LayoutTensor[DType.float32, GPU_VEC_LAYOUT](q_out_dev)
+
+    # Process each batch element
     var results: List[List[Float64]] = []
     for b in range(batch_size):
-        var q = _cpu_euler_solve(mat_dense, q0, t_end, num_steps)
-        results.append(q^)
+        # Copy initial condition to host buffer
+        for i in range(n):
+            q_in_host[i] = q0_flat[i]
+
+        # Copy to device
+        ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_in_host)
+        ctx.synchronize()
+
+        # Launch GPU kernel for all time steps
+        var step = 0
+        while step < num_steps:
+            ctx.enqueue_function[batch_euler_step, batch_euler_step](
+                mat_tensor,
+                q_in_tensor,
+                q_out_tensor,
+                n,
+                Float32(dt),
+                grid_dim=n,
+                block_dim=256,
+            )
+            # Swap: copy q_out to q_in for next step
+            ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_out_dev)
+            step += 1
+
+        # Copy result back
+        ctx.enqueue_copy(dst_buf=q_out_host, src_buf=q_out_dev)
+        ctx.synchronize()
+
+        # Read result (convert Float32 → Float64)
+        var row: List[Float64] = []
+        for i in range(n):
+            row.append(Float64(q_out_host[i]))
+        results.append(row^)
+
     _project_nonnegative(results)
     return results^

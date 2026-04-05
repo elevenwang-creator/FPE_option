@@ -153,23 +153,14 @@ struct FPESolver[B: Int]:
         q0: List[Float64],
         t_eval: List[Float64],
     ) raises -> List[List[Float64]]:
-        """GPU batch: B parameter sets solved in parallel.
+        """GPU batch: B parameter sets solved in parallel on GPU.
 
-        Transfers the assembled matrix components to the GPU device,
-        dispatches one thread-block per batch element (Self.B) and performs
-        batch-level parallel ODE integrations using Device abstractions.
+        Uses the gpu_batch_executor module for Metal/CUDA/HIP execution.
+        Falls back to CPU if GPU is unavailable.
         """
-        comptime if has_accelerator():
-            from std.gpu.host import DeviceContext
-            with DeviceContext() as ctx:
-                # Transfer assembled sparse matrices to device
-                # Launch one thread-block per batch element
-                # Each block integrates ODE independently
-                # Transfer results back
-                pass
-            return self._integrate_cpu_sparse(M, K, q0, t_eval)
-        else:
-            return self._integrate_cpu_sparse(M, K, q0, t_eval)
+        from engines.fpe.gpu_batch_executor import gpu_batch_solve
+        var t_end = t_eval[len(t_eval) - 1]
+        return gpu_batch_solve(M, q0, t_end, Self.B)
 
     def _solve_cpu_parallel(
         self,
