@@ -33,7 +33,7 @@ def fpe_init() -> Int32:
 @export
 def fpe_destroy():
     """Cleanup resources."""
-    _ = 0
+    pass
 
 
 @export
@@ -49,6 +49,10 @@ def fpe_price_single(
     out_gamma: UnsafePointer[Float64, MutAnyOrigin],
 ) -> Int32:
     """Price a single option. Returns 0 on success, 1 on error."""
+    # Null pointer checks
+    if out_price == None or out_delta == None or out_gamma == None:
+        return 1
+
     var engine = PricingEngine()
     _seed_grid(engine, param_hash)
 
@@ -84,7 +88,15 @@ def fpe_price_batch(
     out_deltas: UnsafePointer[Float64, MutAnyOrigin],
     out_gammas: UnsafePointer[Float64, MutAnyOrigin],
 ) -> Int32:
-    """Price batch of options (GPU, high-throughput)."""
+    """Price batch of options. Returns 0 on success, 1 on error."""
+    # Null pointer checks
+    if S == None or K == None or T == None or barrier == None or payoff_type == None:
+        return 1
+    if out_prices == None or out_deltas == None or out_gammas == None:
+        return 1
+    if count <= 0:
+        return 1
+
     var engine = PricingEngine()
     _seed_grid(engine, param_hash)
     
@@ -94,8 +106,7 @@ def fpe_price_batch(
             S=S[i], K=K[i], V=0.1, barrier=barrier[i], payoff_type=Int(payoff_type[i]), param_hash=param_hash
         ))
     
-    # Engine invokes batching pathway
-    var results = engine.price[100](reqs)
+    var results = engine.price[1](reqs)
     
     for i in range(Int(count)):
         if i < len(results):
