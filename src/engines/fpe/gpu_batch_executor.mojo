@@ -30,7 +30,7 @@ from gpu_utils.dtype import (
     is_float32_backend,
 )
 from sparse.csr import CSRMatrix
-from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from std.gpu.host import DeviceContext
 from layout import LayoutTensor
 from numerics.utils import zeros
 from std.sys import has_apple_gpu_accelerator
