@@ -11,6 +11,10 @@ struct DiagMatrix[dtype: DType](Copyable, Movable):
         for _ in range(size):
             self.diag.append(0)
 
+    def __init__(out self, var diag: List[Scalar[Self.dtype]]):
+        self.size = len(diag)
+        self.diag = diag^
+
     def diag_vec_mul(self, x: List[Scalar[Self.dtype]]) -> List[Scalar[Self.dtype]]:
         from std.sys import simd_width_of
         comptime width = simd_width_of[DType.float64]()
