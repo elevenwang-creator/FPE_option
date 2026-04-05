@@ -45,10 +45,10 @@ def batch_euler_step[
         var r = Int(row)
 
         # Compute dq[r] = mat[r,:] @ q_in (read from input buffer)
-        var dq_r: Float32 = 0.0
+        var dq_r: Scalar[DType.float32] = 0.0
         var j = 0
         while j < n:
-            dq_r += mat[r * n + j] * q_in[j]
+            dq_r = dq_r + mat[r * n + j] * q_in[j]
             j += 1
 
         # Euler update: q_out[r] = q_in[r] + dt * dq[r] (write to output buffer)
