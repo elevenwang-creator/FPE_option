@@ -38,11 +38,12 @@ def _bivariate_gaussian(domain: FPEDomain, params: HestonParams, sigma0: Float64
     if v_width <= 0.0:
         v_width = 1.0
 
-    var s0 = (params.S0 - params.S_min) / s_width
-    var v0 = (params.V0 - params.V_min) / v_width
+    # Use physical coordinates for s0, v0 to match domain.s_points/v_points
+    var s0 = params.S0
+    var v0 = params.V0
 
-    var s_sigma = sigma0 / s_width
-    var v_sigma = 0.1 * sigma0 / v_width
+    var s_sigma = sigma0
+    var v_sigma = 0.1 * sigma0
     if s_sigma <= 0.0:
         s_sigma = 1e-3
     if v_sigma <= 0.0:
