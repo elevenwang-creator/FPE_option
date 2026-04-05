@@ -22,9 +22,34 @@ struct HestonParams(Copyable, Movable, Writable, Hashable):
             and self.theta > 0.0
             and self.sigma > 0.0
             and self.T > 0.0
+            and self.S0 > 0.0
+            and self.V0 >= 0.0
             and self.S_max > self.S_min
             and self.V_max > self.V_min
+            and self.rho >= -1.0
+            and self.rho <= 1.0
         )
+
+    def validate(self) raises:
+        """Validate Heston parameters and raise Error if invalid."""
+        if self.kappa <= 0.0:
+            raise Error("kappa must be positive, got " + String(self.kappa))
+        if self.theta <= 0.0:
+            raise Error("theta must be positive, got " + String(self.theta))
+        if self.sigma <= 0.0:
+            raise Error("sigma must be positive, got " + String(self.sigma))
+        if self.T <= 0.0:
+            raise Error("T must be positive, got " + String(self.T))
+        if self.S0 <= 0.0:
+            raise Error("S0 must be positive, got " + String(self.S0))
+        if self.V0 < 0.0:
+            raise Error("V0 must be non-negative, got " + String(self.V0))
+        if self.rho < -1.0 or self.rho > 1.0:
+            raise Error("rho must be in [-1, 1], got " + String(self.rho))
+        if self.S_max <= self.S_min:
+            raise Error("S_max must be > S_min")
+        if self.V_max <= self.V_min:
+            raise Error("V_max must be > V_min")
 
 
 struct HestonParamsBatch[B: Int](Copyable, Movable):
