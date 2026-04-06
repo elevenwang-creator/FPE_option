@@ -6,7 +6,7 @@ and result retrieval for batch parallel ODE solving.
 Backend detection:
 - Apple Silicon → Metal via DeviceContext(api="metal")
 - Other GPU → Generic DeviceContext()
-- No GPU → Falls back to CPU explicit Euler
+- No GPU → Falls back to CPU RadauIIA (order 5)
 
 Dtype selection: Automatically uses gpu_utils.dtype module constants
 with ternary expressions for true "write once, deploy anywhere".
@@ -33,15 +33,50 @@ from sparse.csr import CSRMatrix
 from std.gpu.host import DeviceContext
 from layout import LayoutTensor
 from numerics.utils import zeros
+from numerics.ode.radau import RadauIIA
+from numerics.ode.types import ODESystem
 from std.sys import has_apple_gpu_accelerator
 
 
-# Backend-specific types - automatically selected via ternary expressions
-# Same pattern as gpu_batch_kernels.mojo for consistency
-comptime GPU_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
-comptime GPU_MAT_LAYOUT = METAL_MAT_LAYOUT if has_apple_gpu_accelerator() else CUDA_MAT_LAYOUT
-comptime GPU_VEC_LAYOUT = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
-comptime GPU_MAX_N = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
+struct FPEDenseSystem(ODESystem):
+    """Dense ODE system for RadauIIA integration: dq/dt = A @ q."""
+    var A: List[List[Float64]]
+
+    def __init__(out self, var A: List[List[Float64]]):
+        self.A = A^
+
+    def rhs(
+        self, t: Float64, y: List[Float64], mut dydt: List[Float64]
+    ) raises:
+        _ = t
+        var n = len(self.A)
+        for i in range(n):
+            var acc = 0.0
+            for j in range(n):
+                acc += self.A[i][j] * y[j]
+            dydt[i] = acc
+
+    def dim(self) -> Int:
+        return len(self.A)
+
+
+def _copy_vec(src: List[Float64]) -> List[Float64]:
+    """Deep copy a 1D list."""
+    var dst: List[Float64] = []
+    for i in range(len(src)):
+        dst.append(src[i])
+    return dst^
+
+
+def _copy_mat(src: List[List[Float64]]) -> List[List[Float64]]:
+    """Deep copy a 2D list."""
+    var dst: List[List[Float64]] = []
+    for i in range(len(src)):
+        var row: List[Float64] = []
+        for j in range(len(src[i])):
+            row.append(src[i][j])
+        dst.append(row^)
+    return dst^
 
 
 def _csr_to_dense_float(A: CSRMatrix[DType.float64]) -> List[List[Float64]]:
@@ -103,6 +138,8 @@ def gpu_batch_solve(
     num_steps: Int = 1000,
 ) raises -> List[List[Float64]]:
     """Solve batch of ODE systems on GPU using explicit Euler.
+    
+    Falls back to RadauIIA (order 5) on CPU for numerical accuracy.
 
     Uses runtime dispatch for GPU detection.
     Dtype is automatically selected per backend via gpu_utils.dtype module.
@@ -112,7 +149,7 @@ def gpu_batch_solve(
         q0: Initial state vector (replicated for each batch element)
         t_end: Final integration time
         batch_size: Number of parallel ODE systems
-        num_steps: Number of Euler time steps
+        num_steps: Number of Euler time steps (GPU only)
 
     Returns:
         State vectors at final time, shape [batch_size, num_states]
@@ -120,13 +157,21 @@ def gpu_batch_solve(
     var n = len(q0)
     
     # Bounds check: GPU kernel has fixed maximum size from dtype module
-    if n > GPU_MAX_N:
-        # Fall back to CPU for large matrices
+    comptime MAX_N = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
+    if n > MAX_N:
+        # Fall back to RadauIIA for numerical accuracy
         var results: List[List[Float64]] = []
+        var A = _csr_to_dense_float(neg_M_inv_K)
         for b in range(batch_size):
-            var q = _cpu_euler_solve(_csr_to_dense_float(neg_M_inv_K), q0, t_end, num_steps)
-            results.append(q^)
-        _project_nonnegative(results)
+            var A_copy = _copy_mat(A)
+            var q0_copy = _copy_vec(q0)
+            var t_eval_copy: List[Float64] = [0.0, t_end]
+            var system = FPEDenseSystem(A_copy^)
+            var ode = RadauIIA[FPEDenseSystem](rtol=1e-4, atol=1e-6, max_step=0.05)
+            var sol = ode.solve(system, (0.0, t_end), q0_copy^, t_eval_copy^)
+            var y_out = sol.y.copy()
+            _project_nonnegative(y_out)
+            results.append(y_out[len(y_out) - 1].copy())
         return results^
     
     var mat_dense = _csr_to_dense_float(neg_M_inv_K)
@@ -135,12 +180,18 @@ def gpu_batch_solve(
     if is_gpu_available():
         return _gpu_batch_solve_impl(mat_dense, q0, t_end, batch_size, num_steps, n, dt)
     else:
-        # CPU fallback
+        # CPU fallback: use RadauIIA for numerical accuracy
         var results: List[List[Float64]] = []
         for b in range(batch_size):
-            var q = _cpu_euler_solve(mat_dense, q0, t_end, num_steps)
-            results.append(q^)
-        _project_nonnegative(results)
+            var A_copy = _copy_mat(mat_dense)
+            var q0_copy = _copy_vec(q0)
+            var t_eval_copy: List[Float64] = [0.0, t_end]
+            var system = FPEDenseSystem(A_copy^)
+            var ode = RadauIIA[FPEDenseSystem](rtol=1e-4, atol=1e-6, max_step=0.05)
+            var sol = ode.solve(system, (0.0, t_end), q0_copy^, t_eval_copy^)
+            var y_out = sol.y.copy()
+            _project_nonnegative(y_out)
+            results.append(y_out[len(y_out) - 1].copy())
         return results^
 
 
@@ -163,36 +214,36 @@ def _gpu_batch_solve_impl(
     # Use dtype management module for all type selection
     comptime if is_float32_backend():
         # Metal: Float32
-        var mat_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N * GPU_MAX_N)
-        var q_in_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
-        var q_out_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
+        var mat_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](METAL_MAX_N * METAL_MAX_N)
+        var q_in_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](METAL_MAX_N)
+        var q_out_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](METAL_MAX_N)
         ctx.synchronize()
         
         # Copy matrix with proper padding for LayoutTensor stride
-        for i in range(GPU_MAX_N):
-            for j in range(GPU_MAX_N):
+        for i in range(METAL_MAX_N):
+            for j in range(METAL_MAX_N):
                 if i < n and j < n:
-                    mat_host[i * GPU_MAX_N + j] = Float32(mat_dense[i][j])
+                    mat_host[i * METAL_MAX_N + j] = Float32(mat_dense[i][j])
                 else:
-                    mat_host[i * GPU_MAX_N + j] = Float32(0.0)
+                    mat_host[i * METAL_MAX_N + j] = Float32(0.0)
         
         # Copy initial condition
         for i in range(n):
             q_in_host[i] = Float32(q0[i])
-        for i in range(n, GPU_MAX_N):
+        for i in range(n, METAL_MAX_N):
             q_in_host[i] = Float32(0.0)
         
-        var mat_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N * GPU_MAX_N)
-        var q_in_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-        var q_out_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
+        var mat_dev = ctx.enqueue_create_buffer[METAL_DTYPE](METAL_MAX_N * METAL_MAX_N)
+        var q_in_dev = ctx.enqueue_create_buffer[METAL_DTYPE](METAL_MAX_N)
+        var q_out_dev = ctx.enqueue_create_buffer[METAL_DTYPE](METAL_MAX_N)
         
         ctx.enqueue_copy(dst_buf=mat_dev, src_buf=mat_host)
         ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_in_host)
         ctx.synchronize()
         
-        var mat_tensor = LayoutTensor[METAL_DTYPE, GPU_MAT_LAYOUT](mat_dev)
-        var q_in_tensor = LayoutTensor[METAL_DTYPE, GPU_VEC_LAYOUT](q_in_dev)
-        var q_out_tensor = LayoutTensor[METAL_DTYPE, GPU_VEC_LAYOUT](q_out_dev)
+        var mat_tensor = LayoutTensor[METAL_DTYPE, METAL_MAT_LAYOUT](mat_dev)
+        var q_in_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](q_in_dev)
+        var q_out_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](q_out_dev)
         
         var results: List[List[Float64]] = []
         for b in range(batch_size):
@@ -217,36 +268,36 @@ def _gpu_batch_solve_impl(
         return results^
     else:
         # CUDA/HIP/CPU: Float64
-        var mat_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N * GPU_MAX_N)
-        var q_in_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-        var q_out_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
+        var mat_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](CUDA_MAX_N * CUDA_MAX_N)
+        var q_in_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](CUDA_MAX_N)
+        var q_out_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](CUDA_MAX_N)
         ctx.synchronize()
         
         # Copy matrix with proper padding for LayoutTensor stride
-        for i in range(GPU_MAX_N):
-            for j in range(GPU_MAX_N):
+        for i in range(CUDA_MAX_N):
+            for j in range(CUDA_MAX_N):
                 if i < n and j < n:
-                    mat_host[i * GPU_MAX_N + j] = mat_dense[i][j]
+                    mat_host[i * CUDA_MAX_N + j] = mat_dense[i][j]
                 else:
-                    mat_host[i * GPU_MAX_N + j] = Float64(0.0)
+                    mat_host[i * CUDA_MAX_N + j] = Float64(0.0)
         
         # Copy initial condition
         for i in range(n):
             q_in_host[i] = q0[i]
-        for i in range(n, GPU_MAX_N):
+        for i in range(n, CUDA_MAX_N):
             q_in_host[i] = Float64(0.0)
         
-        var mat_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N * GPU_MAX_N)
-        var q_in_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-        var q_out_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
+        var mat_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](CUDA_MAX_N * CUDA_MAX_N)
+        var q_in_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](CUDA_MAX_N)
+        var q_out_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](CUDA_MAX_N)
         
         ctx.enqueue_copy(dst_buf=mat_dev, src_buf=mat_host)
         ctx.enqueue_copy(dst_buf=q_in_dev, src_buf=q_in_host)
         ctx.synchronize()
         
-        var mat_tensor = LayoutTensor[CUDA_DTYPE, GPU_MAT_LAYOUT](mat_dev)
-        var q_in_tensor = LayoutTensor[CUDA_DTYPE, GPU_VEC_LAYOUT](q_in_dev)
-        var q_out_tensor = LayoutTensor[CUDA_DTYPE, GPU_VEC_LAYOUT](q_out_dev)
+        var mat_tensor = LayoutTensor[CUDA_DTYPE, CUDA_MAT_LAYOUT](mat_dev)
+        var q_in_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](q_in_dev)
+        var q_out_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](q_out_dev)
         
         var results: List[List[Float64]] = []
         for b in range(batch_size):

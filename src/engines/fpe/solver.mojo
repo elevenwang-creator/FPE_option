@@ -155,12 +155,13 @@ struct FPESolver[B: Int]:
     ) raises -> List[List[Float64]]:
         """GPU batch: B parameter sets solved in parallel on GPU.
 
-        Uses the gpu_batch_executor module for Metal/CUDA/HIP execution.
+        Computes -M⁻¹K (same as CPU path), then solves on GPU.
         Falls back to CPU if GPU is unavailable.
         """
         from engines.fpe.gpu_batch_executor import gpu_batch_solve
+        var neg_M_inv_K = self._compute_sparse_neg_M_inv_K(M, K)
         var t_end = t_eval[len(t_eval) - 1]
-        return gpu_batch_solve(M, q0, t_end, Self.B)
+        return gpu_batch_solve(neg_M_inv_K, q0, t_end, Self.B)
 
     def _solve_cpu_parallel(
         self,
@@ -194,46 +195,8 @@ struct FPESolver[B: Int]:
         M: CSRMatrix[DType.float64],
         K: CSRMatrix[DType.float64],
     ) raises -> CSRMatrix[DType.float64]:
-        """Compute -M⁻¹K with parallel column solves using parallelize[]."""
-        var M_dense = _csr_to_dense_float(M)
-        var K_dense = _csr_to_dense_float(K)
-        var n = M.nrows
-
-        # Pre-allocate result storage
-        var out: List[List[Float64]] = []
-        for _ in range(n):
-            out.append(zeros(n))
-
-        # For parallelize[], we need comptime-known function.
-        # We use a chunked approach: divide columns into chunks and solve each chunk.
-        # Since lu_solve raises, we handle errors per-column.
-        comptime num_chunks = 4
-        comptime chunk_size = 8  # max columns per chunk
-
-        # Store results in flat list for parallel access
-        var flat_results: List[Float64] = []
-        for _ in range(n * n):
-            flat_results.append(0.0)
-
-        # Process columns in parallel chunks
-        var chunk_idx = 0
-        while chunk_idx < n:
-            var end_idx = chunk_idx + num_chunks
-            if end_idx > n:
-                end_idx = n
-
-            # Solve this chunk of columns
-            for col in range(chunk_idx, end_idx):
-                var rhs = zeros(n)
-                for r in range(n):
-                    rhs[r] = K_dense[r][col]
-                var x = lu_solve(M_dense, rhs)
-                for r in range(n):
-                    out[r][col] = -x[r]
-
-            chunk_idx = end_idx
-
-        return CSRMatrix[DType.float64].from_dense(out)
+        """Compute -M⁻¹K with sequential column solves (parallelize[] not viable with raises)."""
+        return self._compute_sparse_neg_M_inv_K(M, K)
 
     def _compute_sparse_neg_M_inv_K(
         self,
