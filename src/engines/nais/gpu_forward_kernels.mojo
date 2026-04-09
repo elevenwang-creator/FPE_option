@@ -1,166 +1,129 @@
 """GPU batch forward pass kernel for NAIS training.
 
 Each thread handles one forward pass evaluation for a specific input.
-Used to accelerate the O(n_params) forward passes in finite-difference gradient computation.
+Used to accelerate the O(n_params) forward passes in finite-difference
+gradient computation.
 
 Kernel constraints:
 - nonraising (no exceptions on GPU)
-- UnsafePointer for all parameters
+- LayoutTensor for all parameters with concrete comptime layouts
+- No dynamic memory allocation (no List, uses InlineArray)
 - No print statements (Apple Silicon limitation)
+
+The kernel reconstructs a simplified NAIS-Net forward pass from flattened
+params using stack-allocated accumulators only.
 """
 
-from std.gpu import global_idx
+from std.gpu import block_idx, thread_idx, block_dim
+from layout import Layout, LayoutTensor
+from gpu_utils.dtype import (
+    METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N,
+    CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N,
+)
 from std.math import sin
+from std.sys import has_apple_gpu_accelerator
 
 
-def nais_forward_kernel(
-    # Network parameters (flattened)
-    params: UnsafePointer[Float64, MutAnyOrigin],
-    # Input data: [batch_size, in_dim + 1] (time + state)
-    inputs: UnsafePointer[Float64, MutAnyOrigin],
-    # Output: [batch_size, 1 + phi_dim] (u + phi)
-    outputs: UnsafePointer[Float64, MutAnyOrigin],
-    # Architecture constants
-    batch_size: Int,
-    in_dim: Int,
+comptime FORWARD_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
+comptime FORWARD_VEC_LAYOUT = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
+comptime FORWARD_MAX_BATCH = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
+
+
+def nais_forward_kernel[
     hidden: Int,
     phi_dim: Int,
+](
+    params: LayoutTensor[FORWARD_DTYPE, FORWARD_VEC_LAYOUT, MutAnyOrigin],
+    inputs: LayoutTensor[FORWARD_DTYPE, FORWARD_VEC_LAYOUT, MutAnyOrigin],
+    outputs: LayoutTensor[FORWARD_DTYPE, FORWARD_VEC_LAYOUT, MutAnyOrigin],
+    n_params: Int,
+    in_dim: Int,
+    batch_size: Int,
 ):
-    """Batch NAIS forward pass kernel.
+    """Batch NAIS forward pass kernel using LayoutTensor.
 
-    Each thread (global_idx.x) handles one batch element's forward pass.
+    Each thread (block_idx.x) handles one batch element's forward pass.
+    Network architecture: in_dim -> hidden -> (hidden x 3 residual blocks) -> 1 + phi_dim.
 
-    Layout:
-    - params: flattened network weights (read-only)
-    - inputs: [batch_size, in_dim + 1] row-major
-    - outputs: [batch_size, 1 + phi_dim] row-major
+    Args:
+        params: Flattened network weights (shared across batch).
+        inputs: Input data [batch_size, in_dim + 1] row-major.
+        outputs: Output data [batch_size, 1 + phi_dim] row-major.
+        n_params: Total number of network parameters.
+        in_dim: Input dimension (typically 3: t, x0, x1).
+        batch_size: Number of batch elements.
     """
-    var b = global_idx.x
+    var b = block_idx.x
     if Int(b) >= batch_size:
         return
 
-    var idx = Int(b)
-    var input_base = idx * (in_dim + 1)
+    # Use block_idx.x mapping to absolute batch element
+    var input_base = Int(b) * (in_dim + 1)
+    
+    # Thread identifier (for cooperative future expansions)
+    var tid = thread_idx.x
 
-    # Extract input for this batch element
-    var t_val = inputs[input_base]
-    var x0 = inputs[input_base + 1]
-    var x1 = inputs[input_base + 2]
+    # Read input values
+    var t_val = rebind[Scalar[FORWARD_DTYPE]](inputs[input_base])
+    var x0 = rebind[Scalar[FORWARD_DTYPE]](inputs[input_base + 1])
+    var x1 = rebind[Scalar[FORWARD_DTYPE]](inputs[input_base + 2])
 
-    # Build u_in = [t, x0, x1]
-    var u_in: List[Float64] = [t_val, x0, x1]
-
-    # Reconstruct network weights from flattened params
-    # Layer 1: [in_dim+1, hidden] weights + [hidden] bias
+    # Layer 1: sin(W1 @ [t, x0, x1] + b1) -> hidden
+    # W1: [in_dim+1, hidden], b1: [hidden]
     var p_idx = 0
-    var l1_w: List[List[Float64]] = []
-    var i = 0
-    while i < in_dim + 1:
-        var row: List[Float64] = []
-        var j = 0
-        while j < hidden:
-            row.append(params[p_idx])
-            p_idx += 1
-            j += 1
-        l1_w.append(row^)
-        i += 1
-    var l1_b: List[Float64] = []
-    i = 0
-    while i < hidden:
-        l1_b.append(params[p_idx])
+    # Stack-allocated hidden activations generically sized according to FORWARD_DTYPE
+    var h: InlineArray[Scalar[FORWARD_DTYPE], hidden] = InlineArray[Scalar[FORWARD_DTYPE], hidden]()
+    
+    for j in range(hidden):
+        var acc: Scalar[FORWARD_DTYPE] = rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * t_val
         p_idx += 1
-        i += 1
-
-    # Layer 1 forward: h = sin(W1 @ u_in + b1)
-    var h: List[Float64] = []
-    j = 0
-    while j < hidden:
-        var acc: Float64 = 0.0
-        i = 0
-        while i < in_dim + 1:
-            acc += l1_w[i][j] * u_in[i]
-            i += 1
-        acc += l1_b[j]
-        h.append(sin(acc))
-        j += 1
-
-    # Layers 2-4: residual blocks with skip connections
-    var block_count = 3
-    var blk = 0
-    while blk < block_count:
-        # Skip connection: W_skip @ u_in + b_skip
-        var skip: List[Float64] = []
-        j = 0
-        while j < hidden:
-            var acc: Float64 = 0.0
-            i = 0
-            while i < in_dim + 1:
-                acc += params[p_idx] * u_in[i]
-                p_idx += 1
-                i += 1
-            acc += params[p_idx]
-            p_idx += 1
-            skip.append(acc)
-            j += 1
-
-        # Block linear: W @ h + b
-        var block_out: List[Float64] = []
-        j = 0
-        while j < hidden:
-            var acc: Float64 = 0.0
-            i = 0
-            while i < hidden:
-                acc += params[p_idx] * h[i]
-                p_idx += 1
-                i += 1
-            acc += params[p_idx]
-            p_idx += 1
-            block_out.append(acc)
-            j += 1
-
-        # sin(skip + block_out)
-        j = 0
-        while j < hidden:
-            block_out[j] = sin(skip[j] + block_out[j])
-            j += 1
-
-        # Residual: h = h + block_out
-        j = 0
-        while j < hidden:
-            h[j] = h[j] + block_out[j]
-            j += 1
-
-        blk += 1
-
-    # Layer 5: u = W5 @ h + b5 (output: 1 value)
-    var u_out: Float64 = 0.0
-    i = 0
-    while i < hidden:
-        u_out += params[p_idx] * h[i]
+        acc = acc + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * x0
         p_idx += 1
-        i += 1
-    u_out += params[p_idx]
+        acc = acc + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * x1
+        p_idx += 1
+        acc = acc + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
+        p_idx += 1
+        h[j] = rebind[Scalar[FORWARD_DTYPE]](sin(Float64(acc)))
+
+    # Residual blocks (3 blocks)
+    for _blk in range(3):
+        var skip: InlineArray[Scalar[FORWARD_DTYPE], hidden] = InlineArray[Scalar[FORWARD_DTYPE], hidden]()
+        for j in range(hidden):
+            var acc_s: Scalar[FORWARD_DTYPE] = rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * t_val
+            p_idx += 1
+            acc_s = acc_s + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * x0
+            p_idx += 1
+            acc_s = acc_s + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * x1
+            p_idx += 1
+            acc_s = acc_s + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
+            p_idx += 1
+            skip[j] = acc_s
+
+        for j in range(hidden):
+            var acc_b: Scalar[FORWARD_DTYPE] = 0.0
+            for i in range(hidden):
+                acc_b = acc_b + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
+                p_idx += 1
+            acc_b = acc_b + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
+            p_idx += 1
+            h[j] = h[j] + rebind[Scalar[FORWARD_DTYPE]](sin(Float64(acc_b + skip[j])))
+
+    # Output u
+    var u_out: Scalar[FORWARD_DTYPE] = 0.0
+    for i in range(hidden):
+        u_out = u_out + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
+        p_idx += 1
+    u_out = u_out + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
     p_idx += 1
 
-    # Layer 6: phi = W6 @ h + b6 (output: phi_dim values)
-    var phi: List[Float64] = []
-    j = 0
-    while j < phi_dim:
-        var acc: Float64 = 0.0
-        i = 0
-        while i < hidden:
-            acc += params[p_idx] * h[i]
-            p_idx += 1
-            i += 1
-        acc += params[p_idx]
-        p_idx += 1
-        phi.append(acc)
-        j += 1
+    var out_base = Int(b) * (1 + phi_dim)
+    outputs[out_base] = rebind[outputs.element_type](u_out)
 
-    # Write output: [u, phi...]
-    var out_base = idx * (1 + phi_dim)
-    outputs[out_base] = u_out
-    j = 0
-    while j < phi_dim:
-        outputs[out_base + 1 + j] = phi[j]
-        j += 1
+    for j in range(phi_dim):
+        var phi: Scalar[FORWARD_DTYPE] = 0.0
+        for i in range(hidden):
+             phi = phi + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
+             p_idx += 1
+        phi = phi + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
+        p_idx += 1
+        outputs[out_base + 1 + j] = rebind[outputs.element_type](phi)

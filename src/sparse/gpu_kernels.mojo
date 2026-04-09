@@ -1,59 +1,66 @@
-from std.gpu import barrier, global_idx
+from std.gpu import barrier, block_idx, thread_idx, block_dim
 from std.gpu.host import DeviceContext
 from layout import Layout, LayoutTensor
+from gpu_utils.dtype import (
+    METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N,
+    CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N,
+)
+from std.sys import has_apple_gpu_accelerator
+
+# Backend-specific types
+comptime SPARSE_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
+comptime SPARSE_VEC_LAYOUT = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
 
 
-def spmv_kernel[
-    dtype: DType,
-    data_layout: Layout,
-    idx_layout: Layout,
-    ptr_layout: Layout,
-    vec_layout: Layout,
-](
-    data: LayoutTensor[dtype, data_layout, MutAnyOrigin],
-    indices: LayoutTensor[DType.int32, idx_layout, MutAnyOrigin],
-    indptr: LayoutTensor[DType.int32, ptr_layout, MutAnyOrigin],
-    x: LayoutTensor[dtype, vec_layout, MutAnyOrigin],
-    y: LayoutTensor[dtype, vec_layout, MutAnyOrigin],
+def spmv_kernel(
+    data: LayoutTensor[SPARSE_DTYPE, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    indices: LayoutTensor[DType.int32, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    indptr: LayoutTensor[DType.int32, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    x: LayoutTensor[SPARSE_DTYPE, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    y: LayoutTensor[SPARSE_DTYPE, SPARSE_VEC_LAYOUT, MutAnyOrigin],
     nrows: Int,
 ):
-    """GPU SpMV: one thread per row."""
-    var row_u = global_idx.x
-    if row_u < UInt(nrows):
-        var row = Int(row_u)
-        var start = Int(indptr[row])
-        var end = Int(indptr[row + 1])
-        var sum: Scalar[dtype] = 0
+    """GPU SpMV: block_idx limits scope, thread_idx distributes rows.
+    
+    Architecture:
+    grid_dim.x covers total elements via block_dim.x blocks.
+    Threads cooperate sequentially or explicitly.
+    """
+    var row = block_idx.x * block_dim.x + thread_idx.x
+    if Int(row) < nrows:
+        var r = Int(row)
+        var start = Int(indptr[r])
+        var end = Int(indptr[r + 1])
+        var sum: Scalar[SPARSE_DTYPE] = 0
         for j in range(start, end):
-            sum += rebind[Scalar[dtype]](data[j]) * rebind[Scalar[dtype]](x[Int(indices[j])])
-        y[row] = rebind[y.element_type](sum)
+            sum += rebind[Scalar[SPARSE_DTYPE]](data[j]) * rebind[Scalar[SPARSE_DTYPE]](x[Int(indices[j])])
+        y[r] = rebind[y.element_type](sum)
 
 
-def batch_spmv_kernel[
-    dtype: DType,
-    data_layout: Layout,
-    idx_layout: Layout,
-    ptr_layout: Layout,
-    x_layout: Layout,
-    y_layout: Layout,
-](
-    data: LayoutTensor[dtype, data_layout, MutAnyOrigin],
-    indices: LayoutTensor[DType.int32, idx_layout, MutAnyOrigin],
-    indptr: LayoutTensor[DType.int32, ptr_layout, MutAnyOrigin],
-    X: LayoutTensor[dtype, x_layout, MutAnyOrigin],
-    Y: LayoutTensor[dtype, y_layout, MutAnyOrigin],
+def batch_spmv_kernel(
+    data: LayoutTensor[SPARSE_DTYPE, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    indices: LayoutTensor[DType.int32, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    indptr: LayoutTensor[DType.int32, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    X: LayoutTensor[SPARSE_DTYPE, SPARSE_VEC_LAYOUT, MutAnyOrigin],
+    Y: LayoutTensor[SPARSE_DTYPE, SPARSE_VEC_LAYOUT, MutAnyOrigin],
     nrows: Int,
     batch_size: Int,
 ):
-    """Batch SpMV: one thread per (row, batch) pair."""
-    var row_u = global_idx.x
-    var b_u = global_idx.y
-    if row_u < UInt(nrows) and b_u < UInt(batch_size):
-        var row = Int(row_u)
-        var b = Int(b_u)
-        var start = Int(indptr[row])
-        var end = Int(indptr[row + 1])
-        var sum: Scalar[dtype] = 0
+    """Batch SpMV: one block per batch map, threads cooperate over matrix rows."""
+    var b = block_idx.x
+    var tid = thread_idx.x
+    var threads = block_dim.x
+    
+    if Int(b) >= batch_size:
+        return
+        
+    var i = Int(tid)
+    while i < nrows:
+        var start = Int(indptr[i])
+        var end = Int(indptr[i + 1])
+        var sum: Scalar[SPARSE_DTYPE] = 0
         for j in range(start, end):
-            sum += rebind[Scalar[dtype]](data[j]) * rebind[Scalar[dtype]](X[b, Int(indices[j])])
-        Y[b, row] = rebind[Y.element_type](sum)
+            sum += rebind[Scalar[SPARSE_DTYPE]](data[j]) * rebind[Scalar[SPARSE_DTYPE]](X[Int(b), Int(indices[j])])
+        Y[Int(b), i] = rebind[Y.element_type](sum)
+        i += Int(threads)
+
