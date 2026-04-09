@@ -40,5 +40,5 @@ def radau5_gpu_kernel(
     var base = Int(b) * elements
     var i = Int(tid)
     while i < elements:
-        radau_out[base + i] = rebind[radau_out.element_type](1.0)
+        radau_out[base + i] = 1.0
         i += Int(threads)

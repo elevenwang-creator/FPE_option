@@ -2,6 +2,7 @@ from engines.calibrator.objective import ObjectiveFunction
 from engines.fpe.heston_params import HestonParams
 from numerics.optim.lm import LevenbergMarquardt, ResidualCallable, JacobianCallable
 from numerics.utils import abs_f64, max_f64, min_f64, zeros
+from std.algorithm import parallelize
 
 
 def _params_to_vec(p: HestonParams) -> List[Float64]:
@@ -107,3 +108,43 @@ struct Calibrator[B: Int]:
 
         var x_opt = lm.solve(residual, jacobian, x)
         return _vec_to_params(x_opt, init_params)
+
+    def calibrate_batch(
+        self,
+        market_prices_list: List[List[Float64]],
+        strikes_list: List[List[Float64]],
+        expiries_list: List[List[Float64]],
+        init_params_list: List[HestonParams],
+    ) raises -> List[HestonParams]:
+        """Calibrate batch of independent parameter sets.
+
+        Each calibration runs independently with its own market data and
+        initial parameters. Uses sequential calibration per set since
+        the LM optimizer internally requires sequential Jacobian evaluation.
+
+        For GPU acceleration, each individual objective function evaluation
+        within the LM optimizer uses radau_batch_solve_independent for
+        batch FPE solves when computing multiple perturbation Jacobians.
+
+        Args:
+            market_prices_list: List of market price vectors (one per calibration).
+            strikes_list: List of strike vectors (one per calibration).
+            expiries_list: List of expiry vectors (one per calibration).
+            init_params_list: List of initial Heston params (one per calibration).
+
+        Returns:
+            List of calibrated Heston params (one per calibration).
+        """
+        var batch_size = len(init_params_list)
+        var results: List[HestonParams] = []
+
+        for b in range(batch_size):
+            var result = self.calibrate(
+                market_prices_list[b],
+                strikes_list[b],
+                expiries_list[b],
+                init_params_list[b],
+            )
+            results.append(result^)
+
+        return results^

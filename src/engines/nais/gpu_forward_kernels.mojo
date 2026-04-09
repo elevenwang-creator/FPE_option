@@ -17,8 +17,12 @@ params using stack-allocated accumulators only.
 from std.gpu import block_idx, thread_idx, block_dim
 from layout import Layout, LayoutTensor
 from gpu_utils.dtype import (
-    METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N,
-    CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N,
+    METAL_DTYPE,
+    METAL_VEC_LAYOUT,
+    METAL_MAX_N,
+    CUDA_DTYPE,
+    CUDA_VEC_LAYOUT,
+    CUDA_MAX_N,
 )
 from std.math import sin
 from std.sys import has_apple_gpu_accelerator
@@ -59,7 +63,7 @@ def nais_forward_kernel[
 
     # Use block_idx.x mapping to absolute batch element
     var input_base = Int(b) * (in_dim + 1)
-    
+
     # Thread identifier (for cooperative future expansions)
     var tid = thread_idx.x
 
@@ -72,10 +76,14 @@ def nais_forward_kernel[
     # W1: [in_dim+1, hidden], b1: [hidden]
     var p_idx = 0
     # Stack-allocated hidden activations generically sized according to FORWARD_DTYPE
-    var h: InlineArray[Scalar[FORWARD_DTYPE], hidden] = InlineArray[Scalar[FORWARD_DTYPE], hidden]()
-    
+    var h: InlineArray[Scalar[FORWARD_DTYPE], hidden] = InlineArray[
+        Scalar[FORWARD_DTYPE], hidden
+    ]()
+
     for j in range(hidden):
-        var acc: Scalar[FORWARD_DTYPE] = rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * t_val
+        var acc: Scalar[FORWARD_DTYPE] = (
+            rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * t_val
+        )
         p_idx += 1
         acc = acc + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * x0
         p_idx += 1
@@ -83,13 +91,17 @@ def nais_forward_kernel[
         p_idx += 1
         acc = acc + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
         p_idx += 1
-        h[j] = rebind[Scalar[FORWARD_DTYPE]](sin(Float64(acc)))
+        h[j] = sin(acc)
 
     # Residual blocks (3 blocks)
     for _blk in range(3):
-        var skip: InlineArray[Scalar[FORWARD_DTYPE], hidden] = InlineArray[Scalar[FORWARD_DTYPE], hidden]()
+        var skip: InlineArray[Scalar[FORWARD_DTYPE], hidden] = InlineArray[
+            Scalar[FORWARD_DTYPE], hidden
+        ]()
         for j in range(hidden):
-            var acc_s: Scalar[FORWARD_DTYPE] = rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * t_val
+            var acc_s: Scalar[FORWARD_DTYPE] = (
+                rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * t_val
+            )
             p_idx += 1
             acc_s = acc_s + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * x0
             p_idx += 1
@@ -102,11 +114,13 @@ def nais_forward_kernel[
         for j in range(hidden):
             var acc_b: Scalar[FORWARD_DTYPE] = 0.0
             for i in range(hidden):
-                acc_b = acc_b + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
+                acc_b = (
+                    acc_b + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
+                )
                 p_idx += 1
             acc_b = acc_b + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
             p_idx += 1
-            h[j] = h[j] + rebind[Scalar[FORWARD_DTYPE]](sin(Float64(acc_b + skip[j])))
+            h[j] = h[j] + sin(acc_b + skip[j])
 
     # Output u
     var u_out: Scalar[FORWARD_DTYPE] = 0.0
@@ -122,8 +136,8 @@ def nais_forward_kernel[
     for j in range(phi_dim):
         var phi: Scalar[FORWARD_DTYPE] = 0.0
         for i in range(hidden):
-             phi = phi + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
-             p_idx += 1
+            phi = phi + rebind[Scalar[FORWARD_DTYPE]](params[p_idx]) * h[i]
+            p_idx += 1
         phi = phi + rebind[Scalar[FORWARD_DTYPE]](params[p_idx])
         p_idx += 1
         outputs[out_base + 1 + j] = rebind[outputs.element_type](phi)

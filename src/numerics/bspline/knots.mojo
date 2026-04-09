@@ -34,7 +34,7 @@ struct GenerateKnots(Copyable, Movable):
         var hi = self.boundary[1]
         if hi <= lo:
             return (0.0, 1.0)
-        return (0.0, 1.0)
+        return (lo, hi)
 
     def linspace(self, start: Float64, stop: Float64, count: Int) -> List[Float64]:
         var out: List[Float64] = []

@@ -105,8 +105,7 @@ struct StableLinear(Copyable, Movable):
         var RtR_update = zeros_mat(out_features, out_features)
         for i in range(out_features):
             for j in range(out_features):
-                var r_new = scale * RtR[i][j]
-                RtR_update[i][j] = min_f64(r_new, RtR[i][j])
+                RtR_update[i][j] = scale * RtR[i][j]
 
         var A = zeros_mat(out_features, out_features)
         for i in range(out_features):

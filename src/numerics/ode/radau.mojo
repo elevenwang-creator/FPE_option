@@ -231,17 +231,21 @@ struct RadauIIA[System: ODESystem]:
             if t + h > t1:
                 h = t1 - t
 
-            # ---- Simplified Newton iteration for implicit stages ----
-            # Initialize stage derivatives with explicit Euler estimate
+            # ---- Coupled Newton iteration for implicit stages ----
+            # Solve the full 3n x 3n block system:
+            # [I-h*a11*J, -h*a12*J, -h*a13*J][dk1]   [f1-k1]
+            # [-h*a21*J, I-h*a22*J, -h*a23*J][dk2] = [f2-k2]
+            # [-h*a31*J, -h*a32*J, I-h*a33*J][dk3]   [f3-k3]
             var f0 = zeros(n)
             system.rhs(t, y, f0)
             var k1 = copy_vec(f0)
             var k2 = copy_vec(f0)
             var k3 = copy_vec(f0)
 
+            var J = _estimate_jacobian_linear(system, t, y)
+
             var converged = False
             for _ in range(self.newton_max_iter):
-                # Compute stage values: Y_i = y + h * Σ_j a_ij * k_j
                 var y1 = zeros(n)
                 var y2 = zeros(n)
                 var y3 = zeros(n)
@@ -250,7 +254,6 @@ struct RadauIIA[System: ODESystem]:
                     y2[i] = y[i] + h * (a21 * k1[i] + a22 * k2[i] + a23 * k3[i])
                     y3[i] = y[i] + h * (a31 * k1[i] + a32 * k2[i] + a33 * k3[i])
 
-                # Evaluate f at each stage point
                 var f1 = zeros(n)
                 var f2 = zeros(n)
                 var f3 = zeros(n)
@@ -258,67 +261,64 @@ struct RadauIIA[System: ODESystem]:
                 system.rhs(t + c2 * h, y2, f2)
                 system.rhs(t + c3 * h, y3, f3)
 
-                # Check convergence: max |f_i - k_i|
                 var max_res = 0.0
                 for i in range(n):
                     max_res = max_f64(max_res, abs_f64(f1[i] - k1[i]))
                     max_res = max_f64(max_res, abs_f64(f2[i] - k2[i]))
                     max_res = max_f64(max_res, abs_f64(f3[i] - k3[i]))
 
-                # Newton update: solve (I - h*a_ii*J) * Δk_i = f(Y_i) - k_i
-                var J = _estimate_jacobian_linear(system, t, y)
-
-                # Update k1: (I - h*a11*J) * dk1 = f1 - k1
-                var rhs1 = zeros(n)
-                var I_minus_hA11: List[List[Float64]] = []
-                for i in range(n):
-                    rhs1[i] = f1[i] - k1[i]
-                    var row: List[Float64] = []
-                    for j in range(n):
-                        if i == j:
-                            row.append(1.0 - h * a11 * J[i][j])
-                        else:
-                            row.append(-h * a11 * J[i][j])
-                    I_minus_hA11.append(row^)
-                var dk1 = lu_solve(I_minus_hA11, rhs1)
-                for i in range(n):
-                    k1[i] = k1[i] + dk1[i]
-
-                # Update k2: (I - h*a22*J) * dk2 = f2 - k2
-                var rhs2 = zeros(n)
-                var I_minus_hA22: List[List[Float64]] = []
-                for i in range(n):
-                    rhs2[i] = f2[i] - k2[i]
-                    var row: List[Float64] = []
-                    for j in range(n):
-                        if i == j:
-                            row.append(1.0 - h * a22 * J[i][j])
-                        else:
-                            row.append(-h * a22 * J[i][j])
-                    I_minus_hA22.append(row^)
-                var dk2 = lu_solve(I_minus_hA22, rhs2)
-                for i in range(n):
-                    k2[i] = k2[i] + dk2[i]
-
-                # Update k3: (I - h*a33*J) * dk3 = f3 - k3
-                var rhs3 = zeros(n)
-                var I_minus_hA33: List[List[Float64]] = []
-                for i in range(n):
-                    rhs3[i] = f3[i] - k3[i]
-                    var row: List[Float64] = []
-                    for j in range(n):
-                        if i == j:
-                            row.append(1.0 - h * a33 * J[i][j])
-                        else:
-                            row.append(-h * a33 * J[i][j])
-                    I_minus_hA33.append(row^)
-                var dk3 = lu_solve(I_minus_hA33, rhs3)
-                for i in range(n):
-                    k3[i] = k3[i] + dk3[i]
-
                 if max_res < self.newton_tol:
                     converged = True
                     break
+
+                # Build 3n x 3n block Jacobian system
+                var N3 = 3 * n
+                var block_system: List[List[Float64]] = []
+                for _ in range(N3):
+                    block_system.append(zeros(N3)^)
+
+                for i_block in range(n):
+                    for j_block in range(n):
+                        var Jij = J[i_block][j_block]
+                        # Block (0,0): I - h*a11*J
+                        block_system[i_block][j_block] = (
+                            -h * a11 * Jij if i_block != j_block
+                            else 1.0 - h * a11 * Jij
+                        )
+                        # Block (0,1): -h*a12*J
+                        block_system[i_block][n + j_block] = -h * a12 * Jij
+                        # Block (0,2): -h*a13*J
+                        block_system[i_block][2 * n + j_block] = -h * a13 * Jij
+                        # Block (1,0): -h*a21*J
+                        block_system[n + i_block][j_block] = -h * a21 * Jij
+                        # Block (1,1): I - h*a22*J
+                        block_system[n + i_block][n + j_block] = (
+                            -h * a22 * Jij if i_block != j_block
+                            else 1.0 - h * a22 * Jij
+                        )
+                        # Block (1,2): -h*a23*J
+                        block_system[n + i_block][2 * n + j_block] = -h * a23 * Jij
+                        # Block (2,0): -h*a31*J
+                        block_system[2 * n + i_block][j_block] = -h * a31 * Jij
+                        # Block (2,1): -h*a32*J
+                        block_system[2 * n + i_block][n + j_block] = -h * a32 * Jij
+                        # Block (2,2): I - h*a33*J
+                        block_system[2 * n + i_block][2 * n + j_block] = (
+                            -h * a33 * Jij if i_block != j_block
+                            else 1.0 - h * a33 * Jij
+                        )
+
+                var rhs_block = zeros(N3)
+                for i in range(n):
+                    rhs_block[i] = f1[i] - k1[i]
+                    rhs_block[n + i] = f2[i] - k2[i]
+                    rhs_block[2 * n + i] = f3[i] - k3[i]
+
+                var dk = lu_solve(block_system, rhs_block)
+                for i in range(n):
+                    k1[i] = k1[i] + dk[i]
+                    k2[i] = k2[i] + dk[n + i]
+                    k3[i] = k3[i] + dk[2 * n + i]
 
             if not converged:
                 # Reduce step size and retry

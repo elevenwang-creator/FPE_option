@@ -74,46 +74,50 @@ def _flatten_net_params(net: NaisNet) -> List[Float64]:
     return p^
 
 
-def _unflatten_mat(p: List[Float64], mut idx: Int, mut W: List[List[Float64]]):
-    """Read elements from flat vector into a 2D weight matrix."""
+def _unflatten_mat(p: List[Float64], idx: Int, mut W: List[List[Float64]]) -> Int:
+    """Read elements from flat vector into a 2D weight matrix. Returns updated idx."""
+    var pos = idx
     for i in range(len(W)):
         for j in range(len(W[i])):
-            W[i][j] = p[idx]
-            idx += 1
+            W[i][j] = p[pos]
+            pos += 1
+    return pos
 
 
-def _unflatten_vec(p: List[Float64], mut idx: Int, mut b: List[Float64]):
-    """Read elements from flat vector into a bias vector."""
+def _unflatten_vec(p: List[Float64], idx: Int, mut b: List[Float64]) -> Int:
+    """Read elements from flat vector into a bias vector. Returns updated idx."""
+    var pos = idx
     for j in range(len(b)):
-        b[j] = p[idx]
-        idx += 1
+        b[j] = p[pos]
+        pos += 1
+    return pos
 
 
 def _unflatten_net_params(p: List[Float64], mut net: NaisNet):
     """Deserialize flat vector back into NaisNet weights."""
     var idx = 0
 
-    _unflatten_mat(p, idx, net.layer1)
-    _unflatten_vec(p, idx, net.layer1_b)
+    idx = _unflatten_mat(p, idx, net.layer1)
+    idx = _unflatten_vec(p, idx, net.layer1_b)
 
-    _unflatten_mat(p, idx, net.layer2.W)
-    _unflatten_vec(p, idx, net.layer2.b)
-    _unflatten_mat(p, idx, net.layer3.W)
-    _unflatten_vec(p, idx, net.layer3.b)
-    _unflatten_mat(p, idx, net.layer4.W)
-    _unflatten_vec(p, idx, net.layer4.b)
+    idx = _unflatten_mat(p, idx, net.layer2.W)
+    idx = _unflatten_vec(p, idx, net.layer2.b)
+    idx = _unflatten_mat(p, idx, net.layer3.W)
+    idx = _unflatten_vec(p, idx, net.layer3.b)
+    idx = _unflatten_mat(p, idx, net.layer4.W)
+    idx = _unflatten_vec(p, idx, net.layer4.b)
 
-    _unflatten_mat(p, idx, net.layer2_input)
-    _unflatten_vec(p, idx, net.layer2_input_b)
-    _unflatten_mat(p, idx, net.layer3_input)
-    _unflatten_vec(p, idx, net.layer3_input_b)
-    _unflatten_mat(p, idx, net.layer4_input)
-    _unflatten_vec(p, idx, net.layer4_input_b)
+    idx = _unflatten_mat(p, idx, net.layer2_input)
+    idx = _unflatten_vec(p, idx, net.layer2_input_b)
+    idx = _unflatten_mat(p, idx, net.layer3_input)
+    idx = _unflatten_vec(p, idx, net.layer3_input_b)
+    idx = _unflatten_mat(p, idx, net.layer4_input)
+    idx = _unflatten_vec(p, idx, net.layer4_input_b)
 
-    _unflatten_mat(p, idx, net.layer5)
-    _unflatten_vec(p, idx, net.layer5_b)
-    _unflatten_mat(p, idx, net.layer6)
-    _unflatten_vec(p, idx, net.layer6_b)
+    idx = _unflatten_mat(p, idx, net.layer5)
+    idx = _unflatten_vec(p, idx, net.layer5_b)
+    idx = _unflatten_mat(p, idx, net.layer6)
+    idx = _unflatten_vec(p, idx, net.layer6_b)
 
 
 def _collect_param_indices(net: NaisNet, mut tape: Tape) -> List[Int]:

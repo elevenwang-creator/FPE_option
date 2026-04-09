@@ -6,8 +6,6 @@ from engines.fpe.pdf import PDFComputer
 from engines.fpe.solver import FPESolver
 
 
-
-
 def _with_maturity(base: HestonParams, maturity: Float64) -> HestonParams:
     return HestonParams(
         kappa=base.kappa,
@@ -25,7 +23,9 @@ def _with_maturity(base: HestonParams, maturity: Float64) -> HestonParams:
     )
 
 
-def _integrate_call_price(domain: FPEDomain, pdf: List[List[Float64]], strike: Float64) -> Float64:
+def _integrate_call_price(
+    domain: FPEDomain, pdf: List[List[Float64]], strike: Float64
+) -> Float64:
     var price = 0.0
     var n_s = len(domain.s_points)
     var n_v = len(domain.v_points)
@@ -73,9 +73,14 @@ struct ObjectiveFunction[B: Int](Copyable, Movable):
         self.expiries = copy.expiries.copy()
 
     def compute(self, params: HestonParams) raises -> List[Float64]:
-        """Returns residuals: model_price[i] - market_price[i] for each option."""
-        if len(self.market_prices) != len(self.strikes) or len(self.market_prices) != len(self.expiries):
-            raise Error("ObjectiveFunction: market/strike/expiry lengths must match")
+        """Returns residuals: model_price[i] - market_price[i] for each option.
+        """
+        if len(self.market_prices) != len(self.strikes) or len(
+            self.market_prices
+        ) != len(self.expiries):
+            raise Error(
+                "ObjectiveFunction: market/strike/expiry lengths must match"
+            )
 
         var residuals: List[Float64] = []
         var solver = FPESolver[Self.B](rtol=1e-5, atol=1e-7, max_step=0.02)
@@ -84,11 +89,13 @@ struct ObjectiveFunction[B: Int](Copyable, Movable):
         for i in range(len(self.market_prices)):
             var maturity = self.expiries[i]
             var local_params = _with_maturity(params, maturity)
-            var domain = FPEDomain(local_params, n_s=8, n_v=8, degree_s=3, degree_v=3)
+            var domain = FPEDomain[3, 3](local_params, n_s=8, n_v=8)
             var q_path = solver.solve(domain, local_params, [0.0, maturity])
             var q_terminal = q_path[len(q_path) - 1].copy()
             var pdf = pdf_comp.compute(domain, q_terminal)
-            var model_price = _integrate_call_price(domain, pdf, self.strikes[i])
+            var model_price = _integrate_call_price(
+                domain, pdf, self.strikes[i]
+            )
             residuals.append(model_price - self.market_prices[i])
 
         return residuals^

@@ -44,11 +44,9 @@ def _build_uniform_knots(n_internal: Int, degree: Int) -> List[Float64]:
     return knots^
 
 
-struct FPEDomain(Copyable, Movable):
+struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
     var s_knots: List[Float64]
     var v_knots: List[Float64]
-    var s_degree: Int
-    var v_degree: Int
     var s_points: List[Float64]
     var v_points: List[Float64]
     var s_weights: List[Float64]
@@ -63,11 +61,7 @@ struct FPEDomain(Copyable, Movable):
         params: HestonParams,
         n_s: Int = 20,
         n_v: Int = 20,
-        degree_s: Int = 3,
-        degree_v: Int = 3,
     ):
-        self.s_degree = degree_s
-        self.v_degree = degree_v
         self.s_min = params.S_min
         self.s_max = params.S_max
         self.v_min = params.V_min
@@ -75,7 +69,7 @@ struct FPEDomain(Copyable, Movable):
 
         # Align with Python: Generate non-uniform knots centered at S0/V0
         var s_gen = GenerateKnots(
-            n=n_s, degree=degree_s, method="non-uniform", 
+            n=n_s, degree=Self.degree_s, method="non-uniform", 
             center=0.1, 
             boundary=(self.s_min, self.s_max),
             mean=params.S0, std=0.1
@@ -83,7 +77,7 @@ struct FPEDomain(Copyable, Movable):
         self.s_knots = s_gen.generate_knots()
 
         var v_gen = GenerateKnots(
-            n=n_v, degree=degree_v, method="non-uniform",
+            n=n_v, degree=Self.degree_v, method="non-uniform",
             center=0.1,
             boundary=(self.v_min, self.v_max),
             mean=params.V0, std=0.001
@@ -105,9 +99,9 @@ struct FPEDomain(Copyable, Movable):
     def map_v_to_physical(self, v_norm: Float64) -> Float64:
         return self.v_min + v_norm * (self.v_max - self.v_min)
 
-    def build_basis(self) -> TensorProductBasis[3, 3]:
-        var b_s = BSplineBasis[3](self.s_knots.copy())
-        var b_v = BSplineBasis[3](self.v_knots.copy())
-        var r_s = RecombinationBasis[3](b_s^, left_cond="dirichlet", right_cond="neumann")
-        var r_v = RecombinationBasis[3](b_v^, left_cond="dirichlet", right_cond="neumann")
-        return TensorProductBasis[3, 3](basis_s=r_s^, basis_v=r_v^)
+    def build_basis(self) -> TensorProductBasis[Self.degree_s, Self.degree_v]:
+        var b_s = BSplineBasis[Self.degree_s](self.s_knots.copy())
+        var b_v = BSplineBasis[Self.degree_v](self.v_knots.copy())
+        var r_s = RecombinationBasis[Self.degree_s](b_s^, left_cond="dirichlet", right_cond="neumann")
+        var r_v = RecombinationBasis[Self.degree_v](b_v^, left_cond="dirichlet", right_cond="neumann")
+        return TensorProductBasis[Self.degree_s, Self.degree_v](basis_s=r_s^, basis_v=r_v^)

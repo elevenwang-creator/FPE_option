@@ -18,5 +18,6 @@ numpy = ">=2.4.3,<3"
 [tasks]
 build = "mojo build src/"
 test = "mojo run -I src tests/test_sparse.mojo"
-bench = "mojo run benchmarks/"
-gpu-test = "mojo run --target-accelerator=metal:1 tests/test_metal_gpu.mojo"
+bench = "mojo run -I src benchmarks/run_all.mojo"
+gpu-bench = "mojo run -I src --target-accelerator=metal:1 benchmarks/bench_gpu_batch_pricing.mojo"
+gpu-test = "mojo run -I src --target-accelerator=metal:1 tests/test_metal_gpu.mojo"

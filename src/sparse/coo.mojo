@@ -28,24 +28,15 @@ struct COOMatrix[dtype: DType](Movable):
 
     def to_csr(self) -> CSRMatrix[Self.dtype]:
         var nnz = len(self.data)
+        if nnz == 0:
+            return CSRMatrix[Self.dtype](self.nrows, self.ncols)
+
+        # Build index array and sort by (row, col) using merge sort - O(nnz log nnz)
         var order: List[Int] = []
         for i in range(nnz):
             order.append(i)
 
-        for i in range(1, nnz):
-            var key = order[i]
-            var j = i - 1
-            while j >= 0:
-                var lhs = order[j]
-                var left_r = self.row[lhs]
-                var left_c = self.col[lhs]
-                var right_r = self.row[key]
-                var right_c = self.col[key]
-                if left_r < right_r or (left_r == right_r and left_c <= right_c):
-                    break
-                order[j + 1] = order[j]
-                j -= 1
-            order[j + 1] = key
+        order = self._merge_sort(order)
 
         var out = CSRMatrix[Self.dtype](self.nrows, self.ncols)
         out.indptr[0] = 0
@@ -95,3 +86,53 @@ struct COOMatrix[dtype: DType](Movable):
             out.indptr[current_row] = len(out.data)
 
         return out^
+
+    def _merge_sort(self, order: List[Int]) -> List[Int]:
+        """Stable merge sort by (row, col) pair - O(nnz log nnz)."""
+        var n = len(order)
+        if n <= 1:
+            var result: List[Int] = []
+            for i in range(len(order)):
+                result.append(order[i])
+            return result^
+
+        var mid = n // 2
+        var left: List[Int] = []
+        var right: List[Int] = []
+        for i in range(mid):
+            left.append(order[i])
+        for i in range(mid, n):
+            right.append(order[i])
+
+        var sorted_left = self._merge_sort(left)
+        var sorted_right = self._merge_sort(right)
+        return self._merge(sorted_left, sorted_right)
+
+    def _merge(self, left: List[Int], right: List[Int]) -> List[Int]:
+        """Merge two sorted index lists by (row, col)."""
+        var result: List[Int] = []
+        var i = 0
+        var j = 0
+        while i < len(left) and j < len(right):
+            var li = left[i]
+            var ri = right[j]
+            if self.row[li] < self.row[ri]:
+                result.append(li)
+                i += 1
+            elif self.row[li] > self.row[ri]:
+                result.append(ri)
+                j += 1
+            else:
+                if self.col[li] <= self.col[ri]:
+                    result.append(li)
+                    i += 1
+                else:
+                    result.append(ri)
+                    j += 1
+        while i < len(left):
+            result.append(left[i])
+            i += 1
+        while j < len(right):
+            result.append(right[j])
+            j += 1
+        return result^

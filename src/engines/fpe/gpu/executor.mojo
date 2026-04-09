@@ -8,7 +8,12 @@ from std.gpu.host import DeviceContext
 from layout import Layout, LayoutTensor
 from std.sys import has_accelerator
 from std.math import ceildiv
-from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, CUDA_DTYPE, CUDA_VEC_LAYOUT
+from gpu_utils.dtype import (
+    METAL_DTYPE,
+    METAL_VEC_LAYOUT,
+    CUDA_DTYPE,
+    CUDA_VEC_LAYOUT,
+)
 from std.sys import has_apple_gpu_accelerator
 
 comptime GPU_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
@@ -42,8 +47,11 @@ struct GPUFullChainExecutor[B: Int]:
     var n_v: Int
 
     def execute_batch_pricing(self) raises:
-        """Executes the full Heston batch pricing logic chain entirely on GPU."""
-        comptime assert has_accelerator(), "GPU is required for batch pricing logic chain!"
+        """Executes the full Heston batch pricing logic chain entirely on GPU.
+        """
+        comptime assert (
+            has_accelerator()
+        ), "GPU is required for batch pricing logic chain!"
         var ctx = DeviceContext()
 
         var batch_size = Self.B
@@ -58,13 +66,25 @@ struct GPUFullChainExecutor[B: Int]:
         var grid_buf = ctx.enqueue_create_buffer[GPU_DTYPE](total_size)
         var basis_buf = ctx.enqueue_create_buffer[GPU_DTYPE](total_size)
         var boundary_buf = ctx.enqueue_create_buffer[GPU_DTYPE](total_size)
-        
-        var spmatrix_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * matrix_size)
-        var delta_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
-        var initial_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
-        var lu_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * matrix_size)
-        var radau5_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
-        var price_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
+
+        var spmatrix_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * matrix_size
+        )
+        var delta_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
+        var initial_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
+        var lu_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * matrix_size
+        )
+        var radau5_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
+        var price_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
 
         var knots = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](knots_buf)
         var params = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](params_buf)
@@ -78,9 +98,9 @@ struct GPUFullChainExecutor[B: Int]:
         var radau5 = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](radau5_buf)
         var price = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](price_buf)
 
-        ctx.enqueue_function[generate_knots_gpu_kernel, generate_knots_gpu_kernel](
-            knots, params, self.n_s, self.n_v, grid_dim=grid, block_dim=bs
-        )
+        ctx.enqueue_function[
+            generate_knots_gpu_kernel, generate_knots_gpu_kernel
+        ](knots, params, self.n_s, self.n_v, grid_dim=grid, block_dim=bs)
         ctx.enqueue_function[grid_gpu_kernel, grid_gpu_kernel](
             grid_d, knots, elements, grid_dim=grid, block_dim=bs
         )
@@ -108,27 +128,35 @@ struct GPUFullChainExecutor[B: Int]:
         ctx.enqueue_function[integrate_gpu_kernel, integrate_gpu_kernel](
             price, radau5, elements, grid_dim=grid, block_dim=bs
         )
-        
+
         ctx.synchronize()
 
     def execute_calibration_logic(self) raises:
         """Executes the full Calibration logic chain entirely on GPU."""
-        comptime assert has_accelerator(), "GPU is required for calibration logic chain!"
+        comptime assert (
+            has_accelerator()
+        ), "GPU is required for calibration logic chain!"
         var ctx = DeviceContext()
-        
+
         var batch_size = Self.B
         var bs = 256
         var grid = batch_size
         var elements = 1
-        
+
         # Execute pricing chain first
         self.execute_batch_pricing()
-        
-        var market_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
-        var price_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
-        var loss_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * elements)
+
+        var market_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
+        var price_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
+        var loss_buf = ctx.enqueue_create_buffer[GPU_DTYPE](
+            batch_size * elements
+        )
         var params_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size * 5)
-        
+
         var market = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](market_buf)
         var price = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](price_buf)
         var loss_t = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](loss_buf)
@@ -137,8 +165,8 @@ struct GPUFullChainExecutor[B: Int]:
         ctx.enqueue_function[loss_gpu_kernel, loss_gpu_kernel](
             loss_t, price, market, elements, grid_dim=grid, block_dim=bs
         )
-        ctx.enqueue_function[lm_optimization_gpu_kernel, lm_optimization_gpu_kernel](
-            out_params, loss_t, elements, grid_dim=grid, block_dim=bs
-        )
-        
+        ctx.enqueue_function[
+            lm_optimization_gpu_kernel, lm_optimization_gpu_kernel
+        ](out_params, loss_t, elements, grid_dim=grid, block_dim=bs)
+
         ctx.synchronize()

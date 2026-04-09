@@ -56,12 +56,15 @@ struct RecombinationBasis[degree: Int](Copyable, Movable):
                 out.append(n - 1, ncols - 1, 1.0)
 
         elif self.left_cond == "neumann" and self.right_cond == "neumann":
-            # Keep all and add +1 in both corners.
+            # Keep all basis functions; set first and last to enforce zero-derivative
             for j in range(n):
                 out.append(j, j, 1.0)
-            if n > 0:
-                out.append(0, 0, 1.0)
-                out.append(n - 1, n - 1, 1.0)
+            # Zero-derivative at left: B'(0) = 0 approximated by B[0] = B[1]
+            if n > 1:
+                out.append(0, 1, -1.0)
+            # Zero-derivative at right: B'(1) = 0 approximated by B[n-2] = B[n-1]
+            if n > 1:
+                out.append(n - 1, n - 2, -1.0)
 
         else:
             # Fallback to dirichlet-dirichlet behavior for unknown strings.

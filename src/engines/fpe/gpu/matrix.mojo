@@ -25,7 +25,7 @@ def spmatrix_gpu_kernel(
     var base = Int(b) * matrix_size
     var i = Int(tid)
     while i < matrix_size:
-        spmatrix_out[base + i] = rebind[spmatrix_out.element_type](1.0)
+        spmatrix_out[base + i] = 1.0
         i += Int(threads)
 
 def delta_gpu_kernel(
@@ -39,7 +39,7 @@ def delta_gpu_kernel(
     var base = Int(b) * elements
     var i = Int(tid)
     while i < elements:
-        delta_out[base + i] = rebind[delta_out.element_type](0.0)
+        delta_out[base + i] = 0.0
         i += Int(threads)
 
 def initial_gpu_kernel(
@@ -54,5 +54,5 @@ def initial_gpu_kernel(
     var base = Int(b) * elements
     var i = Int(tid)
     while i < elements:
-        initial_out[base + i] = rebind[initial_out.element_type](0.0)
+        initial_out[base + i] = 0.0
         i += Int(threads)

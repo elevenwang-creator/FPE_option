@@ -5,9 +5,27 @@ from kernels.nn import rfft, irfft
 
 
 def _complex_multiply(a: List[Float64], b: List[Float64]) -> List[Float64]:
+    """Complex multiplication on interleaved real/imag rfft output.
+    a and b are length (N/2+1)*2 with [re0, im0, re1, im1, ...].
+    DC bin (index 0,1): re-only, multiply re parts.
+    Nyquist bin (last pair): re-only, multiply re parts.
+    Interior bins: (a_re*b_re - a_im*b_im, a_re*b_im + a_im*b_re).
+    """
+    var half_len = len(a) // 2
     var out: List[Float64] = []
-    for i in range(len(a)):
-        out.append(a[i] * b[i])
+    # DC bin: index 0 (re only, im=0)
+    out.append(a[0] * b[0])
+    out.append(a[1] * b[1])
+    for k in range(1, half_len - 1):
+        var ar = a[2 * k]
+        var ai = a[2 * k + 1]
+        var br = b[2 * k]
+        var bi = b[2 * k + 1]
+        out.append(ar * br - ai * bi)
+        out.append(ar * bi + ai * br)
+    # Nyquist bin: re only
+    out.append(a[2 * (half_len - 1)] * b[2 * (half_len - 1)])
+    out.append(a[2 * (half_len - 1) + 1] * b[2 * (half_len - 1) + 1])
     return out^
 
 

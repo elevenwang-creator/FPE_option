@@ -233,9 +233,22 @@ struct Pricer[B: Int]:
                     
                     var results: List[PricingResult] = []
                     for i in range(n_options):
+                        var price = Float64(price_host[i])
+                        var payoff = self._get_payoff(requests[i])
+                        var delta = self.greeks_computer.compute_delta(
+                            grid, self.interpolator,
+                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        )
+                        var gamma = self.greeks_computer.compute_gamma(
+                            grid, self.interpolator,
+                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        )
+                        var vega = self.greeks_computer.compute_vega(
+                            grid, self.interpolator,
+                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        )
                         results.append(PricingResult(
-                            price=Float64(price_host[i]),
-                            delta=0.0, gamma=0.0, vega=0.0, success=True,
+                            price=price, delta=delta, gamma=gamma, vega=vega, success=True,
                         ))
                     return results^
                 else:
@@ -303,9 +316,22 @@ struct Pricer[B: Int]:
                     
                     var results: List[PricingResult] = []
                     for i in range(n_options):
+                        var price = Float64(price_host[i])
+                        var payoff = self._get_payoff(requests[i])
+                        var delta = self.greeks_computer.compute_delta(
+                            grid, self.interpolator,
+                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        )
+                        var gamma = self.greeks_computer.compute_gamma(
+                            grid, self.interpolator,
+                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        )
+                        var vega = self.greeks_computer.compute_vega(
+                            grid, self.interpolator,
+                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        )
                         results.append(PricingResult(
-                            price=Float64(price_host[i]),
-                            delta=0.0, gamma=0.0, vega=0.0, success=True,
+                            price=price, delta=delta, gamma=gamma, vega=vega, success=True,
                         ))
                     return results^
             except:
@@ -316,18 +342,17 @@ struct Pricer[B: Int]:
 
     @always_inline
     def _get_payoff(self, req: PricingRequest) -> EuropeanCall:
-        """Get the correct payoff type for Greeks computation.
-
-        Returns EuropeanCall for all payoff types as a simplification.
-        Barrier option Greeks would require different formulas.
+        """Get payoff for Greeks finite-difference integration.
+        Note: Always returns EuropeanCall because Greeks computation uses
+        finite differences on the PDF grid, where payoff.evaluate() computes
+        max(S-K, 0). Barrier option Greeks require different formulas entirely.
         """
         _ = req
         return EuropeanCall()
 
     @always_inline
     def _get_payoff_for_greeks(self, req: PricingRequest) -> EuropeanCall:
-        """Get payoff type for Greeks - currently always EuropeanCall.
-        
+        """Get payoff type for Greeks — currently EuropeanCall for all types.
         TODO: Implement proper barrier option Greeks when needed.
         """
         _ = req
