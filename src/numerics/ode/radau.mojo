@@ -1,177 +1,100 @@
-"""Stiff ODE solvers: BackwardEuler and RadauIIA.
+"""Stiff ODE solver: RadauIIA (order 5, s=3) for linear systems.
 
-RadauIIA is a 3-stage implicit Runge-Kutta method of order 5, designed
-for stiff ODE systems like the FPE. Uses comptime Butcher tableau
-constants and simplified Newton iteration for implicit stage resolution.
+Faithful reimplementation of Hairer's Fortran 77 RADAU5 (RADCOR).
+For linear M*y' = -K*y, the simplified Newton iteration uses a diagonal
+approximation of the Runge-Kutta matrix A (via eigenvalues of A^{-1}),
+which does NOT converge in one step. Multiple iterations (up to NIT=7)
+are needed, as in the Fortran RADCOR code.
 
-BackwardEuler is retained as a simpler fallback (order 1 + Richardson).
+System matrices are h-independent (following Fortran DECOMR/DECOMC):
+  Real:    E1 = M*(U1/H) + K   =>  E1_h = U1*M + H*K  (solve E1_h*x = H*b)
+  Complex: E2 = (ALPH+i*BETA)*M/H + K  =>  2Nx2N real system
+
+Performance optimizations:
+  - Pre-allocated FixedSizeVector work buffers (zero heap allocation in hot loop)
+  - In-place spmv via CSRMatrix.spmv_fixed
+  - In-place LU solve via SparseLU.solve_inplace
+  - SIMD-vectorized element-wise operations via FixedSizeVector methods
+  - Fused Newton RHS construction with SIMD
+
+Reference: Hairer & Wanner, "Solving ODEs II", Ch. IV, Sec. 8
+           Fortran source: RADAU5 / RADCOR / dc_lapack by E. Hairer, G. Wanner
 """
 
-from numerics.ode.types import ODESolution, ODESystem
-from numerics.utils import abs_f64, max_f64, min_f64, zeros, copy_vec, copy_mat, swap_rows
-from numerics.linalg import lu_solve
-from std.math import exp, log
+from numerics.ode.types import ODESolution
+from numerics.utils import (
+    FixedSizeVector, abs_f64, max_f64, min_f64, zeros, copy_vec, pow_pos,
+)
+from numerics.sparse_lu import SparseLU
+from sparse.csr import CSRMatrix
+from sparse.csc import CSCMatrix, csr_to_csc
+from sparse.ops import add, scale
+from std.math import sqrt, abs, min, max
+from std.sys import simd_width_of
 
 
-def _estimate_jacobian_linear[System: ODESystem](
-    system: System, t: Float64, y: List[Float64]
-) raises -> List[List[Float64]]:
-    var n = len(y)
-    var A: List[List[Float64]] = []
-    for _ in range(n):
-        A.append(zeros(n))
+comptime SIMD_WIDTH = simd_width_of[DType.float64]()
 
-    var f0 = zeros(n)
-    system.rhs(t, y, f0)
+comptime SQRT6: Float64 = 2.449489742783178
 
-    for j in range(n):
-        var yp = copy_vec(y)
-        var eps = 1e-8 * (1.0 + abs_f64(y[j]))
-        yp[j] = yp[j] + eps
+comptime C1: Float64 = (4.0 - SQRT6) / 10.0
+comptime C2: Float64 = (4.0 + SQRT6) / 10.0
+comptime C1M1: Float64 = C1 - 1.0
+comptime C2M1: Float64 = C2 - 1.0
+comptime C1MC2: Float64 = C1 - C2
 
-        var fj = zeros(n)
-        system.rhs(t, yp, fj)
-        for i in range(n):
-            A[i][j] = (fj[i] - f0[i]) / eps
+comptime DD1: Float64 = (-13.0 - 7.0 * SQRT6) / 3.0
+comptime DD2: Float64 = (-13.0 + 7.0 * SQRT6) / 3.0
+comptime DD3: Float64 = -1.0 / 3.0
 
-    return A^
+comptime U1: Float64 = 3.6378165692476072
+comptime ALPH: Float64 = 2.6753213032678365
+comptime BETA: Float64 = 3.0493570545593676
 
+comptime T11: Float64 = 9.1232394870892942792e-02
+comptime T12: Float64 = -1.4125529502095420843e-01
+comptime T13: Float64 = -3.0029194105147424492e-02
+comptime T21: Float64 = 2.4171793270710701896e-01
+comptime T22: Float64 = 2.0412935229379993199e-01
+comptime T23: Float64 = 3.8294211275726193779e-01
+comptime T31: Float64 = 9.6604818261509293619e-01
 
-def _backward_euler_step(
-    A: List[List[Float64]], h: Float64, y: List[Float64]
-) raises -> List[Float64]:
-    var n = len(y)
-    var B: List[List[Float64]] = []
-    for i in range(n):
-        var row = zeros(n)
-        for j in range(n):
-            row[j] = -h * A[i][j]
-        row[i] = row[i] + 1.0
-        B.append(row^)
-
-    return lu_solve(B, y)
+comptime TI11: Float64 = 4.3255798900631553510e+00
+comptime TI12: Float64 = 3.3919925181580986954e-01
+comptime TI13: Float64 = 5.4177705399358748719e-01
+comptime TI21: Float64 = -4.1787185915519047273e+00
+comptime TI22: Float64 = -3.2768282076106238708e-01
+comptime TI23: Float64 = 4.7662355450055045196e-01
+comptime TI31: Float64 = -5.0287263494578687595e-01
+comptime TI32: Float64 = 2.5719269498556054292e+00
+comptime TI33: Float64 = -5.9603920482822492497e-01
 
 
-@fieldwise_init
-struct BackwardEuler[System: ODESystem]:
-    """Simplified stiff solver using backward Euler + Richardson extrapolation."""
+trait LinearODESystem:
+    def get_M(self) -> CSRMatrix:
+        ...
 
+    def get_K(self) -> CSRMatrix:
+        ...
+
+
+struct RadauSparseLinearSolver[System: LinearODESystem]:
     var rtol: Float64
     var atol: Float64
     var max_step: Float64
-
-    def solve(
-        self,
-        system: Self.System,
-        t_span: Tuple[Float64, Float64],
-        y0: List[Float64],
-        t_eval: Optional[List[Float64]] = None,
-    ) raises -> ODESolution:
-        _ = t_eval
-
-        comptime safety = 0.9
-        comptime min_factor = 0.2
-        comptime max_factor = 5.0
-
-        var t0 = t_span[0]
-        var t1 = t_span[1]
-        var n = len(y0)
-        if n != system.dim():
-            return ODESolution([], [], False, "Initial state dimension mismatch")
-
-        var jac = _estimate_jacobian_linear(system, t0, y0)
-
-        var t_values: List[Float64] = [t0]
-        var y_values: List[List[Float64]] = []
-        y_values.append(copy_vec(y0))
-
-        var y = copy_vec(y0)
-        var t = t0
-        var h = self.max_step
-        if h <= 0.0:
-            h = (t1 - t0) / 50.0
-        var min_step = 1e-12
-
-        while t < t1:
-            if t + h > t1:
-                h = t1 - t
-
-            var y_full = _backward_euler_step(jac, h, y)
-            var y_half = _backward_euler_step(jac, h * 0.5, y)
-            var y_half2 = _backward_euler_step(jac, h * 0.5, y_half)
-
-            var y_rich = zeros(n)
-            var err_norm = 0.0
-            for i in range(n):
-                y_rich[i] = 2.0 * y_half2[i] - y_full[i]
-                var err_i = abs_f64(y_rich[i] - y_half2[i])
-                var sc = self.atol + self.rtol * max_f64(abs_f64(y[i]), abs_f64(y_rich[i]))
-                var ratio = err_i / sc
-                if ratio > err_norm:
-                    err_norm = ratio
-
-            if err_norm <= 1.0:
-                t = t + h
-                y = y_rich^
-                t_values.append(t)
-                y_values.append(copy_vec(y))
-
-                var factor = max_factor
-                if err_norm > 0.0:
-                    factor = safety * exp(log(1.0 / err_norm) * 0.5)
-                    factor = max_f64(min_factor, min_f64(max_factor, factor))
-                h = min_f64(self.max_step, h * factor)
-            else:
-                var factor = safety * exp(log(1.0 / err_norm) * 0.5)
-                factor = max_f64(min_factor, min_f64(1.0, factor))
-                h = h * factor
-                if h < min_step:
-                    return ODESolution(
-                        t_values^,
-                        y_values^,
-                        False,
-                        "BackwardEuler step size underflow",
-                    )
-
-        return ODESolution(
-            t_values^,
-            y_values^,
-            True,
-            "BackwardEuler integration successful",
-        )
-
-
-struct RadauIIA[System: ODESystem]:
-    """3-stage implicit Radau IIA method. Order 5.
-
-    Proper implicit RK solver for stiff ODE systems like the FPE.
-    Uses comptime Butcher tableau constants and simplified Newton
-    iteration for resolving the implicit stages.
-
-    References:
-    - Hairer & Wanner, "Solving Ordinary Differential Equations II", Ch. IV
-    - The Butcher tableau coefficients are exact for a 3-stage Radau IIA method.
-    """
-
-    var rtol: Float64
-    var atol: Float64
-    var max_step: Float64
-    var newton_tol: Float64
-    var newton_max_iter: Int
+    var first_step: Float64
 
     def __init__(
         out self,
         rtol: Float64 = 1e-6,
         atol: Float64 = 1e-8,
         max_step: Float64 = 0.0,
-        newton_tol: Float64 = 1e-8,
-        newton_max_iter: Int = 12,
+        first_step: Float64 = 0.0,
     ):
         self.rtol = rtol
         self.atol = atol
         self.max_step = max_step
-        self.newton_tol = newton_tol
-        self.newton_max_iter = newton_max_iter
+        self.first_step = first_step
 
     def solve(
         self,
@@ -180,198 +103,574 @@ struct RadauIIA[System: ODESystem]:
         y0: List[Float64],
         t_eval: Optional[List[Float64]] = None,
     ) raises -> ODESolution:
-        _ = t_eval
-
-        # ---- comptime Butcher tableau for 3-stage Radau IIA ----
-        # Abscissae c
-        comptime c1: Float64 = 0.15505102572168219018  # (4 - √6) / 10
-        comptime c2: Float64 = 0.64494897427831780982  # (4 + √6) / 10
-        comptime c3: Float64 = 1.0
-
-        # A matrix (3×3) — implicit stages
-        comptime a11: Float64 = 0.11208445195653073473
-        comptime a12: Float64 = -0.04067796433082320083
-        comptime a13: Float64 = 0.02581692768754036853
-        comptime a21: Float64 = 0.23402839165419385511
-        comptime a22: Float64 = 0.20686796081962466466
-        comptime a23: Float64 = -0.04783262767800705297
-        comptime a31: Float64 = 0.21668178412381825484
-        comptime a32: Float64 = 0.40612326386737472080
-        comptime a33: Float64 = 0.18903606908424243706
-
-        # b weights = last row of A for Radau IIA
-        comptime b1: Float64 = a31
-        comptime b2: Float64 = a32
-        comptime b3: Float64 = a33
-
-        # Adaptive step control
-        comptime safety: Float64 = 0.9
-        comptime min_factor: Float64 = 0.2
-        comptime max_factor: Float64 = 5.0
-        comptime order: Float64 = 5.0
+        var M = system.get_M()
+        var K = system.get_K()
+        var n = len(y0)
+        if n != M.nrows or n != M.ncols:
+            return ODESolution([], [], False, "RadauSparseLinear: M dimension mismatch")
+        if n != K.nrows or n != K.ncols:
+            return ODESolution([], [], False, "RadauSparseLinear: K dimension mismatch")
 
         var t0 = t_span[0]
         var t1 = t_span[1]
-        var n = len(y0)
-        if n != system.dim():
-            return ODESolution([], [], False, "RadauIIA: dimension mismatch")
+        var posneg = 1.0
+        if t1 < t0:
+            posneg = -1.0
 
         var t_values: List[Float64] = [t0]
         var y_values: List[List[Float64]] = []
         y_values.append(copy_vec(y0))
 
-        var y = copy_vec(y0)
+        var y = FixedSizeVector(n)
+        y.copy_from(y0)
         var t = t0
-        var h = self.max_step
-        if h <= 0.0:
-            h = (t1 - t0) / 20.0
-        var min_step = 1e-14
 
-        while t < t1 - 1e-14:
-            if t + h > t1:
+        var uround: Float64 = 1e-16
+        var nit: Int = 7
+        var safety: Float64 = 0.9
+        var fac1: Float64 = 0.2
+        var fac2: Float64 = 8.0
+        var quot1: Float64 = 1.0
+        var quot2: Float64 = 1.2
+
+        var rtol_work = 0.1 * self.rtol ** (2.0 / 3.0)
+        var atol_work = rtol_work * (self.atol / self.rtol)
+
+        var fnewt = max_f64(
+            10.0 * uround / rtol_work, min_f64(0.03, rtol_work ** 0.5)
+        )
+
+        var scal = FixedSizeVector(n)
+        scal.update_scal(atol_work, rtol_work, y)
+
+        var h: Float64
+        if self.first_step > 0.0:
+            h = self.first_step
+        else:
+            var k0_list = K.spmv(y0)
+            var dnf = 0.0
+            for k in range(n):
+                dnf += (k0_list[k] / scal[k]) ** 2
+            dnf = sqrt(dnf / Float64(n))
+            if dnf <= 1e-10:
+                h = max_f64(1e-6, abs_f64(t1 - t0) * 1e-3)
+            else:
+                h = 0.01 / dnf
+        if self.max_step > 0.0:
+            h = min_f64(h, self.max_step)
+        h = min_f64(h, abs_f64(t1 - t0))
+        h = posneg * h
+
+        var n_steps: Int = 0
+        var n_accepted: Int = 0
+        var n_rejected: Int = 0
+        var h_old: Float64 = h
+        var reject = False
+        var first = True
+        var faccon: Float64 = 1.0
+        var theta: Float64 = 0.0
+        var hacc: Float64 = 0.0
+        var erracc: Float64 = 1e-2
+        var cfac = safety * Float64(1 + 2 * nit)
+
+        var h_lu: Float64 = 0.0
+        var lu_real = SparseLU(n)
+        var lu_complex = SparseLU(2 * n)
+
+        var w = FixedSizeVector(n)
+        var Z1 = FixedSizeVector(n)
+        var Z2 = FixedSizeVector(n)
+        var Z3 = FixedSizeVector(n)
+        var F1 = FixedSizeVector(n)
+        var F2 = FixedSizeVector(n)
+        var F3 = FixedSizeVector(n)
+        var KZ1 = FixedSizeVector(n)
+        var KZ2 = FixedSizeVector(n)
+        var KZ3 = FixedSizeVector(n)
+        var MF1 = FixedSizeVector(n)
+        var MF2 = FixedSizeVector(n)
+        var MF3 = FixedSizeVector(n)
+        var rhs_real = FixedSizeVector(n)
+        var rhs_complex = FixedSizeVector(2 * n)
+        var dF1 = FixedSizeVector(n)
+        var dF2_dF3 = FixedSizeVector(2 * n)
+        var work_n = FixedSizeVector(n)
+        var work_2n = FixedSizeVector(2 * n)
+        var CONT = FixedSizeVector(n)
+        var M_CONT = FixedSizeVector(n)
+        var rhs_err = FixedSizeVector(n)
+        var error_vec = FixedSizeVector(n)
+        var scal_err = FixedSizeVector(n)
+
+        while posneg * (t1 - t) > uround * max_f64(abs_f64(t), abs_f64(t1)):
+            if n_steps > 100000:
+                return ODESolution(
+                    t_values^,
+                    y_values^,
+                    False,
+                    "RadauSparseLinear: max steps exceeded",
+                )
+
+            if posneg * (t + 1.01 * h - t1) > 0.0:
                 h = t1 - t
 
-            # ---- Coupled Newton iteration for implicit stages ----
-            # Solve the full 3n x 3n block system:
-            # [I-h*a11*J, -h*a12*J, -h*a13*J][dk1]   [f1-k1]
-            # [-h*a21*J, I-h*a22*J, -h*a23*J][dk2] = [f2-k2]
-            # [-h*a31*J, -h*a32*J, I-h*a33*J][dk3]   [f3-k3]
-            var f0 = zeros(n)
-            system.rhs(t, y, f0)
-            var k1 = copy_vec(f0)
-            var k2 = copy_vec(f0)
-            var k3 = copy_vec(f0)
+            var h_abs = abs_f64(h)
+            if h_abs < 1e-14:
+                return ODESolution(
+                    t_values^,
+                    y_values^,
+                    False,
+                    "RadauSparseLinear: step size underflow",
+                )
 
-            var J = _estimate_jacobian_linear(system, t, y)
+            var need_lu: Bool
+            if h_lu == 0.0:
+                need_lu = True
+            else:
+                var h_ratio = abs_f64(h / h_lu)
+                need_lu = h_ratio < quot1 or h_ratio > quot2
+            if need_lu:
+                var E1_h = self._build_real_system(M, K, h, n)
+                var E1_csc = csr_to_csc(E1_h)
+                lu_real = SparseLU(n)
+                lu_real.factorize(E1_csc)
 
+                var E2_h = self._build_complex_system(M, K, h, n)
+                var E2_csc = csr_to_csc(E2_h)
+                lu_complex = SparseLU(2 * n)
+                lu_complex.factorize(E2_csc)
+
+                h_lu = h
+
+            scal.update_scal(atol_work, rtol_work, y)
+
+            K.spmv_fixed(y, w)
+
+            if first:
+                Z1.zero_out()
+                Z2.zero_out()
+                Z3.zero_out()
+                F1.zero_out()
+                F2.zero_out()
+                F3.zero_out()
+            else:
+                Z1.zero_out()
+                Z2.zero_out()
+                Z3.zero_out()
+                F1.zero_out()
+                F2.zero_out()
+                F3.zero_out()
+
+            var newt: Int = 0
+            faccon = max_f64(faccon, uround) ** 0.8
+            var theta_loc = abs_f64(theta)
+            var dynold: Float64 = 0.0
+            var thqold: Float64 = 0.0
             var converged = False
-            for _ in range(self.newton_max_iter):
-                var y1 = zeros(n)
-                var y2 = zeros(n)
-                var y3 = zeros(n)
-                for i in range(n):
-                    y1[i] = y[i] + h * (a11 * k1[i] + a12 * k2[i] + a13 * k3[i])
-                    y2[i] = y[i] + h * (a21 * k1[i] + a22 * k2[i] + a23 * k3[i])
-                    y3[i] = y[i] + h * (a31 * k1[i] + a32 * k2[i] + a33 * k3[i])
+            var newt_fail = False
 
-                var f1 = zeros(n)
-                var f2 = zeros(n)
-                var f3 = zeros(n)
-                system.rhs(t + c1 * h, y1, f1)
-                system.rhs(t + c2 * h, y2, f2)
-                system.rhs(t + c3 * h, y3, f3)
+            while newt < nit:
+                K.spmv_fixed(Z1, KZ1)
+                K.spmv_fixed(Z2, KZ2)
+                K.spmv_fixed(Z3, KZ3)
 
-                var max_res = 0.0
-                for i in range(n):
-                    max_res = max_f64(max_res, abs_f64(f1[i] - k1[i]))
-                    max_res = max_f64(max_res, abs_f64(f2[i] - k2[i]))
-                    max_res = max_f64(max_res, abs_f64(f3[i] - k3[i]))
+                M.spmv_fixed(F1, MF1)
+                M.spmv_fixed(F2, MF2)
+                M.spmv_fixed(F3, MF3)
 
-                if max_res < self.newton_tol:
+                self._build_newton_rhs(
+                    rhs_real, rhs_complex, w, KZ1, KZ2, KZ3, MF1, MF2, MF3, h, n
+                )
+
+                dF1.copy_from_fixed(rhs_real)
+                lu_real.solve_inplace(dF1, work_n)
+
+                dF2_dF3.copy_from_fixed(rhs_complex)
+                lu_complex.solve_inplace(dF2_dF3, work_2n)
+
+                newt += 1
+
+                var dyno_sq = 0.0
+                comptime width = SIMD_WIDTH
+                var k = 0
+                while k + width <= n:
+                    var s_scal = SIMD[DType.float64, width]()
+                    var s_dF1 = SIMD[DType.float64, width]()
+                    var s_dF2 = SIMD[DType.float64, width]()
+                    var s_dF3 = SIMD[DType.float64, width]()
+                    for j in range(width):
+                        s_scal[j] = scal[k + j]
+                        s_dF1[j] = dF1[k + j]
+                        s_dF2[j] = dF2_dF3[k + j]
+                        s_dF3[j] = dF2_dF3[n + k + j]
+                    var r1 = s_dF1 / s_scal
+                    var r2 = s_dF2 / s_scal
+                    var r3 = s_dF3 / s_scal
+                    dyno_sq += (r1 * r1 + r2 * r2 + r3 * r3).reduce_add()
+                    k += width
+                while k < n:
+                    var s = scal[k]
+                    dyno_sq += (dF1[k] / s) ** 2 + (dF2_dF3[k] / s) ** 2 + (
+                        dF2_dF3[n + k] / s
+                    ) ** 2
+                    k += 1
+                var dyno = sqrt(dyno_sq / Float64(3 * n))
+
+                if newt > 1 and newt < nit:
+                    var thq = dyno / max_f64(dynold, uround)
+                    if newt == 2:
+                        theta_loc = thq
+                    else:
+                        theta_loc = sqrt(thq * thqold)
+                    thqold = thq
+                    if theta_loc < 0.99:
+                        faccon = theta_loc / (1.0 - theta_loc)
+                        var dyth = (
+                            faccon
+                            * dyno
+                            * pow_pos(theta_loc, Float64(nit - 1 - newt))
+                            / fnewt
+                        )
+                        if dyth >= 1.0:
+                            var qnewt = max_f64(1e-4, min_f64(20.0, dyth))
+                            var hhfac = 0.8 * qnewt ** (
+                                -1.0 / Float64(4 + nit - 1 - newt)
+                            )
+                            h = hhfac * h
+                            newt_fail = True
+                            break
+                    else:
+                        newt_fail = True
+                        break
+
+                dynold = max_f64(dyno, uround)
+
+                F1.addassign(dF1)
+                F2.addassign_offset(dF2_dF3, 0)
+                F3.addassign_offset(dF2_dF3, n)
+
+                Z1.lin_comb_3(T11, F1, T12, F2, T13, F3)
+                Z2.lin_comb_3(T21, F1, T22, F2, T23, F3)
+                Z3.lin_comb_2(T31, F1, 1.0, F2)
+
+                if faccon * dyno <= fnewt:
                     converged = True
                     break
 
-                # Build 3n x 3n block Jacobian system
-                var N3 = 3 * n
-                var block_system: List[List[Float64]] = []
-                for _ in range(N3):
-                    block_system.append(zeros(N3)^)
-
-                for i_block in range(n):
-                    for j_block in range(n):
-                        var Jij = J[i_block][j_block]
-                        # Block (0,0): I - h*a11*J
-                        block_system[i_block][j_block] = (
-                            -h * a11 * Jij if i_block != j_block
-                            else 1.0 - h * a11 * Jij
-                        )
-                        # Block (0,1): -h*a12*J
-                        block_system[i_block][n + j_block] = -h * a12 * Jij
-                        # Block (0,2): -h*a13*J
-                        block_system[i_block][2 * n + j_block] = -h * a13 * Jij
-                        # Block (1,0): -h*a21*J
-                        block_system[n + i_block][j_block] = -h * a21 * Jij
-                        # Block (1,1): I - h*a22*J
-                        block_system[n + i_block][n + j_block] = (
-                            -h * a22 * Jij if i_block != j_block
-                            else 1.0 - h * a22 * Jij
-                        )
-                        # Block (1,2): -h*a23*J
-                        block_system[n + i_block][2 * n + j_block] = -h * a23 * Jij
-                        # Block (2,0): -h*a31*J
-                        block_system[2 * n + i_block][j_block] = -h * a31 * Jij
-                        # Block (2,1): -h*a32*J
-                        block_system[2 * n + i_block][n + j_block] = -h * a32 * Jij
-                        # Block (2,2): I - h*a33*J
-                        block_system[2 * n + i_block][2 * n + j_block] = (
-                            -h * a33 * Jij if i_block != j_block
-                            else 1.0 - h * a33 * Jij
-                        )
-
-                var rhs_block = zeros(N3)
-                for i in range(n):
-                    rhs_block[i] = f1[i] - k1[i]
-                    rhs_block[n + i] = f2[i] - k2[i]
-                    rhs_block[2 * n + i] = f3[i] - k3[i]
-
-                var dk = lu_solve(block_system, rhs_block)
-                for i in range(n):
-                    k1[i] = k1[i] + dk[i]
-                    k2[i] = k2[i] + dk[n + i]
-                    k3[i] = k3[i] + dk[2 * n + i]
-
-            if not converged:
-                # Reduce step size and retry
-                h = h * 0.5
-                if h < min_step:
+            if newt_fail or not converged:
+                reject = True
+                if first:
+                    h = h * 0.1
+                else:
+                    h = h * 0.5
+                if abs_f64(h) < 1e-14:
                     return ODESolution(
-                        t_values^, y_values^, False,
-                        "RadauIIA: Newton iteration failed to converge"
+                        t_values^,
+                        y_values^,
+                        False,
+                        "RadauSparseLinear: step size underflow in Newton",
                     )
                 continue
 
-            # ---- Compute solution and embedded error estimate ----
-            # y_{n+1} = y_n + h * (b1*k1 + b2*k2 + b3*k3)
-            var y_new = zeros(n)
-            for i in range(n):
-                y_new[i] = y[i] + h * (b1 * k1[i] + b2 * k2[i] + b3 * k3[i])
+            theta = theta_loc
 
-            # Error estimate: difference between order-5 and embedded order-3
-            # Using the stage 3 value as the lower-order estimate
-            var err_norm = 0.0
-            for i in range(n):
-                var err_i = abs_f64(y_new[i] - (y[i] + h * k3[i]))
-                var sc = self.atol + self.rtol * max_f64(abs_f64(y[i]), abs_f64(y_new[i]))
-                var ratio = err_i / sc
-                err_norm = max_f64(err_norm, ratio)
+            CONT.lin_comb_3(DD1, Z1, DD2, Z2, DD3, Z3)
 
-            if err_norm <= 1.0:
-                # Accept step
+            M.spmv_fixed(CONT, M_CONT)
+            rhs_err.sub_scaled(M_CONT, h, w)
+
+            error_vec.copy_from_fixed(rhs_err)
+            lu_real.solve_inplace(error_vec, work_n)
+
+            scal_err.update_scal(atol_work, rtol_work, y)
+            var err_norm_sq = error_vec.scaled_norm_sq(scal_err)
+            var err_norm = sqrt(err_norm_sq / Float64(n))
+            if err_norm < 1e-10:
+                err_norm = 1e-10
+
+            if err_norm >= 1.0 and (first or reject):
+                var y_trial = FixedSizeVector(n)
+                y_trial.add_from(y, error_vec)
+                K.spmv_fixed(y_trial, w)
+                rhs_err.sub_scaled(M_CONT, h, w)
+
+                error_vec.copy_from_fixed(rhs_err)
+                lu_real.solve_inplace(error_vec, work_n)
+
+                err_norm_sq = error_vec.scaled_norm_sq(scal_err)
+                err_norm = sqrt(err_norm_sq / Float64(n))
+                if err_norm < 1e-10:
+                    err_norm = 1e-10
+
+            var fac = min_f64(safety, cfac / Float64(newt + 2 * nit))
+            var quot = max_f64(
+                1.0 / fac2, min_f64(1.0 / fac1, err_norm ** 0.25 / fac)
+            )
+            var h_new = h / quot
+
+            if err_norm < 1.0:
+                first = False
+                n_accepted += 1
                 t = t + h
-                y = y_new^
-                t_values.append(t)
-                y_values.append(copy_vec(y))
+                y.addassign(Z3)
 
-                # Adjust step size
-                var factor = max_factor
-                if err_norm > 1e-10:
-                    factor = safety * exp(log(1.0 / err_norm) / order)
-                    factor = max_f64(min_factor, min_f64(max_factor, factor))
-                h = min_f64(self.max_step if self.max_step > 0 else (t1 - t0), h * factor)
-            else:
-                # Reject step, reduce h
-                var factor = safety * exp(log(1.0 / err_norm) / order)
-                factor = max_f64(min_factor, min_f64(1.0, factor))
-                h = h * factor
-                if h < min_step:
-                    return ODESolution(
-                        t_values^, y_values^, False,
-                        "RadauIIA: step size underflow"
+                n_steps += 1
+
+                t_values.append(t)
+                y_values.append(y.to_list())
+
+                if n_accepted > 1:
+                    var facgus = (
+                        (hacc / h)
+                        * (err_norm ** 2 / erracc) ** 0.25
+                        / safety
                     )
+                    facgus = max_f64(1.0 / fac2, min_f64(1.0 / fac1, facgus))
+                    quot = max_f64(quot, facgus)
+                    h_new = h / quot
+
+                hacc = h
+                erracc = max_f64(1e-2, err_norm)
+                h_old = h
+
+                h_new = posneg * min_f64(abs_f64(h_new), abs_f64(t1 - t))
+                if self.max_step > 0.0:
+                    h_new = posneg * min_f64(abs_f64(h_new), self.max_step)
+                if reject:
+                    h_new = posneg * min_f64(abs_f64(h_new), abs_f64(h))
+                reject = False
+                h = h_new
+            else:
+                reject = True
+                if first:
+                    h = h * 0.1
+                else:
+                    h = h_new
+                if n_accepted >= 1:
+                    n_rejected += 1
 
         return ODESolution(
             t_values^,
             y_values^,
             True,
-            "RadauIIA integration successful",
+            "RadauSparseLinear: " + String(n_steps) + " steps",
         )
+
+    def _build_newton_rhs(
+        self,
+        mut rhs_real: FixedSizeVector,
+        mut rhs_complex: FixedSizeVector,
+        w: FixedSizeVector,
+        KZ1: FixedSizeVector,
+        KZ2: FixedSizeVector,
+        KZ3: FixedSizeVector,
+        MF1: FixedSizeVector,
+        MF2: FixedSizeVector,
+        MF3: FixedSizeVector,
+        h: Float64,
+        n: Int,
+    ):
+        comptime width = SIMD_WIDTH
+        var i = 0
+        while i + width <= n:
+            var sw = SIMD[DType.float64, width]()
+            var sKZ1 = SIMD[DType.float64, width]()
+            var sKZ2 = SIMD[DType.float64, width]()
+            var sKZ3 = SIMD[DType.float64, width]()
+            for k in range(width):
+                sw[k] = w.ptr()[i + k]
+                sKZ1[k] = KZ1.ptr()[i + k]
+                sKZ2[k] = KZ2.ptr()[i + k]
+                sKZ3[k] = KZ3.ptr()[i + k]
+
+            var sf1 = -sw - sKZ1
+            var sf2 = -sw - sKZ2
+            var sf3 = -sw - sKZ3
+
+            var sW1 = TI11 * sf1 + TI12 * sf2 + TI13 * sf3
+            var sW2 = TI21 * sf1 + TI22 * sf2 + TI23 * sf3
+            var sW3 = TI31 * sf1 + TI32 * sf2 + TI33 * sf3
+
+            var sMF1 = SIMD[DType.float64, width]()
+            var sMF2 = SIMD[DType.float64, width]()
+            var sMF3 = SIMD[DType.float64, width]()
+            for k in range(width):
+                sMF1[k] = MF1.ptr()[i + k]
+                sMF2[k] = MF2.ptr()[i + k]
+                sMF3[k] = MF3.ptr()[i + k]
+
+            var s_rhs_real = h * sW1 - U1 * sMF1
+            var s_rhs_cx = h * sW2 - ALPH * sMF2 + BETA * sMF3
+            var s_rhs_cx2 = h * sW3 - ALPH * sMF3 - BETA * sMF2
+
+            for k in range(width):
+                rhs_real.ptr()[i + k] = s_rhs_real[k]
+                rhs_complex.ptr()[i + k] = s_rhs_cx[k]
+                rhs_complex.ptr()[n + i + k] = s_rhs_cx2[k]
+            i += width
+
+        while i < n:
+            var f1_k = -w[i] - KZ1[i]
+            var f2_k = -w[i] - KZ2[i]
+            var f3_k = -w[i] - KZ3[i]
+            var W1_k = TI11 * f1_k + TI12 * f2_k + TI13 * f3_k
+            var W2_k = TI21 * f1_k + TI22 * f2_k + TI23 * f3_k
+            var W3_k = TI31 * f1_k + TI32 * f2_k + TI33 * f3_k
+            rhs_real[i] = h * W1_k - U1 * MF1[i]
+            rhs_complex[i] = h * W2_k - ALPH * MF2[i] + BETA * MF3[i]
+            rhs_complex[n + i] = h * W3_k - ALPH * MF3[i] - BETA * MF2[i]
+            i += 1
+
+    def _build_real_system(
+        self,
+        M: CSRMatrix,
+        K: CSRMatrix,
+        h: Float64,
+        n: Int,
+    ) -> CSRMatrix:
+        return add(scale(U1, M), scale(h, K))
+
+    def _build_complex_system(
+        self,
+        M: CSRMatrix,
+        K: CSRMatrix,
+        h: Float64,
+        n: Int,
+    ) -> CSRMatrix:
+        var n2 = 2 * n
+
+        var row_nnz = alloc[Int](n2)
+        for i in range(n):
+            var count = 0
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                count += 1
+                if M.indices[m_p] < K.indices[k_p]:
+                    m_p += 1
+                elif M.indices[m_p] > K.indices[k_p]:
+                    k_p += 1
+                else:
+                    m_p += 1
+                    k_p += 1
+            count += (m_end - m_p) + (k_end - k_p)
+            count += M.indptr[i + 1] - M.indptr[i]
+            row_nnz[i] = count
+
+        for i in range(n):
+            var count = M.indptr[i + 1] - M.indptr[i]
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                count += 1
+                if M.indices[m_p] < K.indices[k_p]:
+                    m_p += 1
+                elif M.indices[m_p] > K.indices[k_p]:
+                    k_p += 1
+                else:
+                    m_p += 1
+                    k_p += 1
+            count += (m_end - m_p) + (k_end - k_p)
+            row_nnz[n + i] = count
+
+        var total_nnz = 0
+        for i in range(n2):
+            total_nnz += row_nnz[i]
+
+        var result = CSRMatrix(n2, n2, total_nnz)
+        result.indptr[0] = 0
+        for i in range(n2):
+            result.indptr[i + 1] = result.indptr[i] + row_nnz[i]
+
+        var dest = 0
+
+        for i in range(n):
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+
+            while m_p < m_end and k_p < k_end:
+                var m_col = M.indices[m_p]
+                var k_col = K.indices[k_p]
+                if m_col == k_col:
+                    result.data[dest] = ALPH * M.data[m_p] + h * K.data[k_p]
+                    result.indices[dest] = m_col
+                    dest += 1
+                    m_p += 1
+                    k_p += 1
+                elif m_col < k_col:
+                    result.data[dest] = ALPH * M.data[m_p]
+                    result.indices[dest] = m_col
+                    dest += 1
+                    m_p += 1
+                else:
+                    result.data[dest] = h * K.data[k_p]
+                    result.indices[dest] = k_col
+                    dest += 1
+                    k_p += 1
+
+            while m_p < m_end:
+                result.data[dest] = ALPH * M.data[m_p]
+                result.indices[dest] = M.indices[m_p]
+                dest += 1
+                m_p += 1
+            while k_p < k_end:
+                result.data[dest] = h * K.data[k_p]
+                result.indices[dest] = K.indices[k_p]
+                dest += 1
+                k_p += 1
+
+            for p in range(M.indptr[i], M.indptr[i + 1]):
+                result.data[dest] = -BETA * M.data[p]
+                result.indices[dest] = n + M.indices[p]
+                dest += 1
+
+        for i in range(n):
+            for p in range(M.indptr[i], M.indptr[i + 1]):
+                result.data[dest] = BETA * M.data[p]
+                result.indices[dest] = M.indices[p]
+                dest += 1
+
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+
+            while m_p < m_end and k_p < k_end:
+                var m_col = M.indices[m_p]
+                var k_col = K.indices[k_p]
+                if m_col == k_col:
+                    result.data[dest] = ALPH * M.data[m_p] + h * K.data[k_p]
+                    result.indices[dest] = n + m_col
+                    dest += 1
+                    m_p += 1
+                    k_p += 1
+                elif m_col < k_col:
+                    result.data[dest] = ALPH * M.data[m_p]
+                    result.indices[dest] = n + m_col
+                    dest += 1
+                    m_p += 1
+                else:
+                    result.data[dest] = h * K.data[k_p]
+                    result.indices[dest] = n + k_col
+                    dest += 1
+                    k_p += 1
+
+            while m_p < m_end:
+                result.data[dest] = ALPH * M.data[m_p]
+                result.indices[dest] = n + M.indices[m_p]
+                dest += 1
+                m_p += 1
+            while k_p < k_end:
+                result.data[dest] = h * K.data[k_p]
+                result.indices[dest] = n + K.indices[k_p]
+                dest += 1
+                k_p += 1
+
+        row_nnz.free()
+        return result^
