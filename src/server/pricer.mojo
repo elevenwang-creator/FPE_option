@@ -5,6 +5,7 @@ Key improvements over original:
 - Hoists payoff computation out of inner V-loop (payoff depends only on S)
 - SIMD inner loop over variance dimension
 - Computes Vega alongside Delta/Gamma
+- GPU batch pricing routes through engines.fpe.gpu per architecture requirements
 """
 
 from std.sys import has_accelerator
@@ -32,7 +33,7 @@ struct PricingRequest(Copyable, Movable):
             self.S > 0.0
             and self.K > 0.0
             and self.V >= 0.0
-            and self.barrier > self.S
+            and (self.barrier == 0.0 or self.barrier > self.S)
             and self.payoff_type >= 0
             and self.payoff_type <= 3
         )
@@ -72,7 +73,6 @@ struct Pricer[B: Int]:
     def _price_single(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
         """CPU path: pre-compute weights once, then integrate for each option."""
 
-        # Pre-compute trapezoidal weights once for the entire grid
         var ds_weights = self._compute_trap_weights(grid.s_points)
         var dv_weights = self._compute_trap_weights(grid.v_points)
 
@@ -140,200 +140,66 @@ struct Pricer[B: Int]:
         return results^
 
     def _price_gpu_batch(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
-        """GPU batch pricing using payoff_integration_kernel.
-        
-        Uses dtype management module (METAL_DTYPE/CUDA_DTYPE, METAL_VEC_LAYOUT/CUDA_VEC_LAYOUT)
-        for automatic backend type selection - no hardcoded DType values.
+        """GPU batch pricing via engines.fpe.gpu logic chain.
+
+        Routes through engines.fpe.gpu.executor.GPUFullChainExecutor
+        per architecture requirements in logic_picture.md:
+        service layer delegates to engine module for full GPU pipeline.
         """
         comptime if has_accelerator():
-            from server.gpu_pricing_kernels import (
-                payoff_integration_kernel,
-                PRICER_DTYPE, PRICER_VEC_LAYOUT, PRICER_MAX_OPTIONS,
-            )
-            from gpu_utils.host_utils import create_device_context
-            from gpu_utils.dtype import (
-                METAL_DTYPE, CUDA_DTYPE,
-                METAL_VEC_LAYOUT, CUDA_VEC_LAYOUT,
-            )
+            from engines.fpe.gpu.executor import GPUFullChainExecutor
+            from gpu_utils.dtype import METAL_MAX_N, CUDA_MAX_N
             from std.sys import has_apple_gpu_accelerator
-            from layout import LayoutTensor
-            
+
+            comptime GPU_MAX_N = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
+
+            var n_options = len(requests)
+            if n_options > GPU_MAX_N:
+                return self._price_cpu_parallel(grid, requests)
+
             try:
-                var ctx = create_device_context()
-                var n_s = len(grid.s_points)
-                var n_v = len(grid.v_points)
-                var n_options = len(requests)
-                
-                if n_options > PRICER_MAX_OPTIONS:
-                    return self._price_cpu_parallel(grid, requests)
-                
-                # Use dtype management module constants for automatic type selection
-                comptime if has_apple_gpu_accelerator():
-                    # Metal: use METAL_DTYPE and METAL_VEC_LAYOUT from dtype module
-                    var pdf_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
-                    var s_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var v_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var ds_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var dv_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var k_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var bar_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var price_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    ctx.synchronize()
-                    
-                    for i in range(n_s):
-                        for j in range(n_v):
-                            if i * n_v + j < PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS:
-                                pdf_host[i * n_v + j] = Float32(grid.pdf[i][j])
-                    for i in range(n_s):
-                        s_host[i] = Float32(grid.s_points[i])
-                        ds_host[i] = Float32(1.0)
-                    for i in range(n_v):
-                        v_host[i] = Float32(grid.v_points[i])
-                        dv_host[i] = Float32(1.0)
-                    for i in range(n_options):
-                        k_host[i] = Float32(requests[i].K)
-                        bar_host[i] = Float32(requests[i].barrier)
-                    
-                    var pdf_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
-                    var s_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var v_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var ds_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var dv_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var k_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var bar_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    var price_dev = ctx.enqueue_create_buffer[METAL_DTYPE](PRICER_MAX_OPTIONS)
-                    
-                    ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
-                    ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
-                    ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
-                    ctx.enqueue_copy(dst_buf=ds_dev, src_buf=ds_host)
-                    ctx.enqueue_copy(dst_buf=dv_dev, src_buf=dv_host)
-                    ctx.enqueue_copy(dst_buf=k_dev, src_buf=k_host)
-                    ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
-                    ctx.synchronize()
-                    
-                    var pdf_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](pdf_dev)
-                    var s_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](s_dev)
-                    var v_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](v_dev)
-                    var ds_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](ds_dev)
-                    var dv_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](dv_dev)
-                    var k_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](k_dev)
-                    var bar_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](bar_dev)
-                    var price_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](price_dev)
-                    
-                    ctx.enqueue_function[payoff_integration_kernel, payoff_integration_kernel](
-                        pdf_tensor, s_tensor, v_tensor, ds_tensor, dv_tensor,
-                        k_tensor, bar_tensor, price_tensor,
-                        n_s, n_v, n_options,
-                        grid_dim=n_options, block_dim=256,
+                var strikes: List[Float64] = []
+                var barriers: List[Float64] = []
+                for i in range(n_options):
+                    strikes.append(requests[i].K)
+                    barriers.append(requests[i].barrier)
+
+                var ds_weights = grid.ds_weights.copy()
+                var dv_weights = grid.dv_weights.copy()
+                if len(ds_weights) == 0:
+                    ds_weights = self._compute_trap_weights(grid.s_points)
+                if len(dv_weights) == 0:
+                    dv_weights = self._compute_trap_weights(grid.v_points)
+
+                var executor = GPUFullChainExecutor[Self.B](
+                    n_s=len(grid.s_points), n_v=len(grid.v_points)
+                )
+                var prices = executor.price_options(
+                    grid.pdf, grid.s_points, grid.v_points,
+                    ds_weights, dv_weights,
+                    strikes^, barriers^,
+                    len(grid.s_points), len(grid.v_points), n_options,
+                )
+
+                var results: List[PricingResult] = []
+                for i in range(n_options):
+                    var payoff = self._get_payoff(requests[i])
+                    var delta = self.greeks_computer.compute_delta(
+                        grid, self.interpolator,
+                        requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
                     )
-                    ctx.synchronize()
-                    ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
-                    ctx.synchronize()
-                    
-                    var results: List[PricingResult] = []
-                    for i in range(n_options):
-                        var price = Float64(price_host[i])
-                        var payoff = self._get_payoff(requests[i])
-                        var delta = self.greeks_computer.compute_delta(
-                            grid, self.interpolator,
-                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
-                        )
-                        var gamma = self.greeks_computer.compute_gamma(
-                            grid, self.interpolator,
-                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
-                        )
-                        var vega = self.greeks_computer.compute_vega(
-                            grid, self.interpolator,
-                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
-                        )
-                        results.append(PricingResult(
-                            price=price, delta=delta, gamma=gamma, vega=vega, success=True,
-                        ))
-                    return results^
-                else:
-                    # CUDA/HIP: use CUDA_DTYPE and CUDA_VEC_LAYOUT from dtype module
-                    var pdf_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
-                    var s_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var v_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var ds_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var dv_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var k_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var bar_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var price_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    ctx.synchronize()
-                    
-                    for i in range(n_s):
-                        for j in range(n_v):
-                            if i * n_v + j < PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS:
-                                pdf_host[i * n_v + j] = grid.pdf[i][j]
-                    for i in range(n_s):
-                        s_host[i] = grid.s_points[i]
-                        ds_host[i] = 1.0
-                    for i in range(n_v):
-                        v_host[i] = grid.v_points[i]
-                        dv_host[i] = 1.0
-                    for i in range(n_options):
-                        k_host[i] = requests[i].K
-                        bar_host[i] = requests[i].barrier
-                    
-                    var pdf_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS * PRICER_MAX_OPTIONS)
-                    var s_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var v_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var ds_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var dv_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var k_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var bar_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    var price_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](PRICER_MAX_OPTIONS)
-                    
-                    ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
-                    ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
-                    ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
-                    ctx.enqueue_copy(dst_buf=ds_dev, src_buf=ds_host)
-                    ctx.enqueue_copy(dst_buf=dv_dev, src_buf=dv_host)
-                    ctx.enqueue_copy(dst_buf=k_dev, src_buf=k_host)
-                    ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
-                    ctx.synchronize()
-                    
-                    var pdf_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](pdf_dev)
-                    var s_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](s_dev)
-                    var v_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](v_dev)
-                    var ds_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](ds_dev)
-                    var dv_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](dv_dev)
-                    var k_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](k_dev)
-                    var bar_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](bar_dev)
-                    var price_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](price_dev)
-                    
-                    ctx.enqueue_function[payoff_integration_kernel, payoff_integration_kernel](
-                        pdf_tensor, s_tensor, v_tensor, ds_tensor, dv_tensor,
-                        k_tensor, bar_tensor, price_tensor,
-                        n_s, n_v, n_options,
-                        grid_dim=n_options, block_dim=256,
+                    var gamma = self.greeks_computer.compute_gamma(
+                        grid, self.interpolator,
+                        requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
                     )
-                    ctx.synchronize()
-                    ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
-                    ctx.synchronize()
-                    
-                    var results: List[PricingResult] = []
-                    for i in range(n_options):
-                        var price = Float64(price_host[i])
-                        var payoff = self._get_payoff(requests[i])
-                        var delta = self.greeks_computer.compute_delta(
-                            grid, self.interpolator,
-                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
-                        )
-                        var gamma = self.greeks_computer.compute_gamma(
-                            grid, self.interpolator,
-                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
-                        )
-                        var vega = self.greeks_computer.compute_vega(
-                            grid, self.interpolator,
-                            requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
-                        )
-                        results.append(PricingResult(
-                            price=price, delta=delta, gamma=gamma, vega=vega, success=True,
-                        ))
-                    return results^
+                    var vega = self.greeks_computer.compute_vega(
+                        grid, self.interpolator,
+                        requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                    )
+                    results.append(PricingResult(
+                        price=prices[i], delta=delta, gamma=gamma, vega=vega, success=True,
+                    ))
+                return results^
             except:
                 pass
             return self._price_cpu_parallel(grid, requests)

@@ -1,10 +1,17 @@
+"""Recombination basis with direct CSR construction.
+
+Matches Python: Rcol = num_basis - 2, matrix is n x Rcol.
+Row 0: left boundary condition
+Rows 1 to n-2: identity (R[i, i-1] = 1)
+Row n-1: right boundary condition
+Direct CSR output, no COO intermediate.
+"""
+
 from numerics.bspline.basis import BSplineBasis
-from sparse.coo import COOMatrix
 from sparse.csr import CSRMatrix
 from sparse.ops import spgemm
 
 
-@align(64)
 struct RecombinationBasis[degree: Int](Copyable, Movable):
     var basis: BSplineBasis[Self.degree]
     var left_cond: String
@@ -20,66 +27,50 @@ struct RecombinationBasis[degree: Int](Copyable, Movable):
         self.left_cond = left_cond
         self.right_cond = right_cond
 
-    def recombination_matrix(self) -> CSRMatrix[DType.float64]:
+    def recombination_matrix(self) -> CSRMatrix:
         var n = self.basis.num_basis
-        var remove_left = self.left_cond == "dirichlet"
-        var remove_right = self.right_cond == "dirichlet"
+        var Rcol = n - 2
+        if Rcol < 0:
+            Rcol = 0
 
-        var num_removed = 0
-        if remove_left:
-            num_removed += 1
-        if remove_right:
-            num_removed += 1
+        var total_nnz = Rcol
+        if self.left_cond == "neumann":
+            if Rcol > 0:
+                total_nnz += 1
+        if self.right_cond == "neumann":
+            if Rcol > 0:
+                total_nnz += 1
 
-        var ncols = n - num_removed
-        if ncols < 0:
-            ncols = 0
+        var result = CSRMatrix(n, Rcol, total_nnz)
+        var dest = 0
+        result.indptr[0] = 0
 
-        var out = COOMatrix[DType.float64](n, ncols)
+        if self.left_cond == "neumann" and Rcol > 0:
+            result.data[dest] = 1.0
+            result.indices[dest] = 0
+            dest += 1
+        result.indptr[1] = dest
 
-        if self.left_cond == "dirichlet" and self.right_cond == "dirichlet":
-            for j in range(ncols):
-                out.append(j + 1, j, 1.0)
+        for i in range(1, n - 1):
+            result.data[dest] = 1.0
+            result.indices[dest] = i - 1
+            dest += 1
+            result.indptr[i + 1] = dest
 
-        elif self.left_cond == "neumann" and self.right_cond == "dirichlet":
-            # Remove last only; add +1 in top-left corner.
-            for j in range(ncols):
-                out.append(j + 1, j, 1.0)
-            if ncols > 0:
-                out.append(0, 0, 1.0)
+        if self.right_cond == "neumann" and Rcol > 0:
+            result.data[dest] = 1.0
+            result.indices[dest] = Rcol - 1
+            dest += 1
+        result.indptr[n] = dest
 
-        elif self.left_cond == "dirichlet" and self.right_cond == "neumann":
-            # Remove first only; add +1 in bottom-right corner.
-            for j in range(ncols):
-                out.append(j, j, 1.0)
-            if ncols > 0:
-                out.append(n - 1, ncols - 1, 1.0)
+        return result^
 
-        elif self.left_cond == "neumann" and self.right_cond == "neumann":
-            # Keep all basis functions; set first and last to enforce zero-derivative
-            for j in range(n):
-                out.append(j, j, 1.0)
-            # Zero-derivative at left: B'(0) = 0 approximated by B[0] = B[1]
-            if n > 1:
-                out.append(0, 1, -1.0)
-            # Zero-derivative at right: B'(1) = 0 approximated by B[n-2] = B[n-1]
-            if n > 1:
-                out.append(n - 1, n - 2, -1.0)
-
-        else:
-            # Fallback to dirichlet-dirichlet behavior for unknown strings.
-            # TODO: Should raise an error instead of silently falling back.
-            for j in range(ncols):
-                out.append(j + 1, j, 1.0)
-
-        return out.to_csr()
-
-    def eval_all(self, points: List[Float64]) -> CSRMatrix[DType.float64]:
+    def eval_all(self, points: List[Float64]) -> CSRMatrix:
         var B = self.basis.eval_all(points)
         var R = self.recombination_matrix()
         return spgemm(B, R)
 
-    def first_derivative_all(self, points: List[Float64]) -> CSRMatrix[DType.float64]:
+    def first_derivative_all(self, points: List[Float64]) -> CSRMatrix:
         var dB = self.basis.first_derivative_all(points)
         var R = self.recombination_matrix()
         return spgemm(dB, R)

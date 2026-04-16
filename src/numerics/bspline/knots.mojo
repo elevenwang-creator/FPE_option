@@ -1,5 +1,57 @@
-from std.math import pi, cos
+from std.math import pi, cos, sqrt
 from std.collections import List
+
+
+struct GaussLegendre:
+    var order: Int
+    var nodes: List[Float64]
+    var weights: List[Float64]
+
+    def __init__(out self, order: Int):
+        self.order = order
+        if order == 2:
+            var s = sqrt(1.0 / 3.0)
+            self.nodes = [-s, s]
+            self.weights = [0.5, 0.5]
+        elif order == 3:
+            self.nodes = [-sqrt(3.0 / 5.0), 0.0, sqrt(3.0 / 5.0)]
+            self.weights = [5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0]
+        elif order == 4:
+            var s1 = sqrt(3.0 / 7.0 + 2.0 / 7.0 * sqrt(5.0 / 6.0))
+            var s2 = sqrt(3.0 / 7.0 - 2.0 / 7.0 * sqrt(5.0 / 6.0))
+            var w1 = (18.0 - sqrt(30.0)) / 36.0
+            var w2 = (18.0 + sqrt(30.0)) / 36.0
+            self.nodes = [-s1, -s2, s2, s1]
+            self.weights = [w1, w2, w2, w1]
+        elif order == 5:
+            self.nodes = [
+                -0.9061798459386639927976,
+                -0.5384693101056831,
+                0.0,
+                0.5384693101056831,
+                0.9061798459386639927976,
+            ]
+            self.weights = [
+                0.2369268850561891,
+                0.4786286704993665,
+                0.5688888888888889,
+                0.4786286704993665,
+                0.2369268850561891,
+            ]
+        elif order == 6:
+            var s1 = sqrt(5.0 - 2.0 * sqrt(10.0 / 7.0)) / 3.0
+            var s2 = sqrt(5.0 + 2.0 * sqrt(10.0 / 7.0)) / 3.0
+            var s3 = sqrt(5.0 / 3.0 - 2.0 / 21.0 * sqrt(5.0 / 2.0))
+            var s4 = sqrt(5.0 / 3.0 + 2.0 / 21.0 * sqrt(5.0 / 2.0))
+            var w1 = (322.0 + 13.0 * sqrt(70.0)) / 1800.0
+            var w2 = (322.0 - 13.0 * sqrt(70.0)) / 1800.0
+            var w3 = 128.0 / 225.0
+            self.nodes = [-s2, -s4, -s3, s3, s4, s2]
+            self.weights = [w1, w3, w2, w2, w3, w1]
+        else:
+            self.nodes = [0.0]
+            self.weights = [1.0]
+
 
 @align(64)
 struct GenerateKnots(Copyable, Movable):
@@ -86,7 +138,7 @@ struct GenerateKnots(Copyable, Movable):
         var knots_raw: List[Float64] = []
         
         if self.method == "non-uniform":
-            var c_nodes = self.chebyshev_nodes(8, lb_norm, ub_norm)
+            var c_nodes = self.chebyshev_nodes(13, lb_norm, ub_norm)
             for i in range(len(c_nodes)): knots_raw.append(c_nodes[i])
             
             var p_nodes = self.parabolic_internal_knots(internal_num)

@@ -1,49 +1,79 @@
-"""Compressed Sparse Row matrix with SIMD-vectorized operations.
+"""Compressed Sparse Row matrix with direct construction and SIMD spmv.
 
-Key optimizations over original:
-- spmv uses SIMD accumulation (2-4× faster on dense row segments)
-- spmv_into provides zero-allocation variant for ODE inner loops
-- transpose operates in O(nnz) without dense round-trip
+Key design:
+- Direct CSR construction via two-pass algorithm (no COO intermediate)
+- SIMD-vectorized spmv
+- All matrix ops (spgemm, add, kron, transpose) produce CSR directly
+- Move semantics with ownership transfer (^)
+- List[Float64] storage (UnsafePointer with origin not available in this Mojo version)
 """
 
 from std.sys import simd_width_of
+from numerics.utils import FixedSizeVector
+
+comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
 
-# Optimal SIMD width for float64 operations.
-# ARM64 (Apple Silicon): 2 (128-bit NEON)
-# x86-64 with AVX2: 4 (256-bit)
-# x86-64 with AVX-512: 8 (512-bit)
-comptime SIMD_F64_WIDTH: Int = simd_width_of[DType.float64]()
-
-
-@align(64)
-struct CSRMatrix[dtype: DType](Copyable, Movable, Writable):
-    var data: List[Scalar[Self.dtype]]
+struct CSRMatrix(Movable, Writable):
+    var data: List[Float64]
     var indices: List[Int]
     var indptr: List[Int]
+    var _nnz: Int
     var nrows: Int
     var ncols: Int
 
-    def __init__(out self, nrows: Int, ncols: Int):
+    def __init__(out self, nrows: Int, ncols: Int, nnz: Int = 0):
         self.nrows = nrows
         self.ncols = ncols
-        self.data = []
-        self.indices = []
-        self.indptr = [0]
-        for _ in range(nrows):
+        self._nnz = nnz
+        self.data = List[Float64]()
+        self.indices = List[Int]()
+        self.indptr = List[Int]()
+        for _ in range(nnz):
+            self.data.append(0.0)
+            self.indices.append(0)
+        for _ in range(nrows + 1):
             self.indptr.append(0)
 
+    def __init__(
+        out self,
+        nrows: Int,
+        ncols: Int,
+        nnz: Int,
+        var data: List[Float64],
+        var indptr: List[Int],
+        var indices: List[Int],
+    ):
+        self.nrows = nrows
+        self.ncols = ncols
+        self._nnz = nnz
+        self.data = data^
+        self.indptr = indptr^
+        self.indices = indices^
+
     def nnz(self) -> Int:
-        return len(self.data)
+        return self._nnz
 
-    def spmv(self, x: List[Scalar[Self.dtype]]) -> List[Scalar[Self.dtype]]:
-        """Sparse matrix-vector multiply: y = A @ x.
+    def copy(self) -> Self:
+        var result = Self(self.nrows, self.ncols, self._nnz)
+        for i in range(self._nnz):
+            result.data[i] = self.data[i]
+            result.indices[i] = self.indices[i]
+        for i in range(self.nrows + 1):
+            result.indptr[i] = self.indptr[i]
+        return result^
 
-        Uses SIMD accumulation on contiguous data/value segments within
-        each row. Falls back to scalar for the tail elements.
-        """
-        comptime width = SIMD_F64_WIDTH
-        var y: List[Scalar[Self.dtype]] = []
+    def get(self, row: Int, col: Int) -> Float64:
+        if row < 0 or row >= self.nrows or col < 0 or col >= self.ncols:
+            return 0
+        for p in range(self.indptr[row], self.indptr[row + 1]):
+            if self.indices[p] == col:
+                return self.data[p]
+        return 0
+
+    def spmv(self, x: List[Float64]) -> List[Float64]:
+        comptime width = SIMD_W
+        var y: List[Float64] = []
         for _ in range(self.nrows):
             y.append(0)
 
@@ -53,20 +83,18 @@ struct CSRMatrix[dtype: DType](Copyable, Movable, Writable):
         for i in range(self.nrows):
             var row_start = self.indptr[i]
             var row_end = self.indptr[i + 1]
-            var acc: Scalar[Self.dtype] = 0
+            var acc: Float64 = 0
 
-            # SIMD accumulation: process `width` elements per iteration
             var p = row_start
             while p + width <= row_end:
-                var vals = SIMD[Self.dtype, width]()
-                var x_vals = SIMD[Self.dtype, width]()
+                var vals = SIMD[DType.float64, width]()
+                var x_vals = SIMD[DType.float64, width]()
                 for k in range(width):
                     vals[k] = self.data[p + k]
                     x_vals[k] = x[self.indices[p + k]]
                 acc += (vals * x_vals).reduce_add()
                 p += width
 
-            # Scalar tail for remaining elements
             while p < row_end:
                 acc += self.data[p] * x[self.indices[p]]
                 p += 1
@@ -74,27 +102,18 @@ struct CSRMatrix[dtype: DType](Copyable, Movable, Writable):
             y[i] = acc
         return y^
 
-    def spmv_into(
-        self,
-        x: List[Scalar[Self.dtype]],
-        mut y: List[Scalar[Self.dtype]],
-    ):
-        """In-place sparse matvec: y = A @ x. Zero allocation.
-
-        Critical for ODE inner loop where rhs() is called hundreds of times.
-        Eliminates List allocation overhead per call.
-        """
-        comptime width = SIMD_F64_WIDTH
+    def spmv_into(self, x: List[Float64], mut y: List[Float64]):
+        comptime width = SIMD_W
 
         for i in range(self.nrows):
             var row_start = self.indptr[i]
             var row_end = self.indptr[i + 1]
-            var acc: Scalar[Self.dtype] = 0
+            var acc: Float64 = 0
 
             var p = row_start
             while p + width <= row_end:
-                var vals = SIMD[Self.dtype, width]()
-                var x_vals = SIMD[Self.dtype, width]()
+                var vals = SIMD[DType.float64, width]()
+                var x_vals = SIMD[DType.float64, width]()
                 for k in range(width):
                     vals[k] = self.data[p + k]
                     x_vals[k] = x[self.indices[p + k]]
@@ -107,60 +126,135 @@ struct CSRMatrix[dtype: DType](Copyable, Movable, Writable):
 
             y[i] = acc
 
-    def transpose(self) -> CSRMatrix[Self.dtype]:
-        """Transpose: A^T. O(nnz) without dense round-trip.
+    def spmv_inplace_fixed(self, x: List[Float64], mut y: FixedSizeVector):
+        comptime width = SIMD_W
+        y.zero_out()
 
-        Builds COO in transposed order, then converts to CSR.
-        """
-        from sparse.coo import COOMatrix
+        for i in range(self.nrows):
+            var row_start = self.indptr[i]
+            var row_end = self.indptr[i + 1]
+            var acc: Float64 = 0
 
-        var coo = COOMatrix[Self.dtype](self.ncols, self.nrows)
+            var p = row_start
+            while p + width <= row_end:
+                var vals = SIMD[DType.float64, width]()
+                var x_vals = SIMD[DType.float64, width]()
+                for k in range(width):
+                    vals[k] = self.data[p + k]
+                    x_vals[k] = x[self.indices[p + k]]
+                acc += (vals * x_vals).reduce_add()
+                p += width
+
+            while p < row_end:
+                acc += self.data[p] * x[self.indices[p]]
+                p += 1
+
+            y[i] = acc
+
+    def spmv_fixed(self, x: FixedSizeVector, mut y: FixedSizeVector):
+        comptime width = SIMD_W
+        y.zero_out()
+
+        for i in range(self.nrows):
+            var row_start = self.indptr[i]
+            var row_end = self.indptr[i + 1]
+            var acc: Float64 = 0
+
+            var p = row_start
+            while p + width <= row_end:
+                var vals = SIMD[DType.float64, width]()
+                var x_vals = SIMD[DType.float64, width]()
+                for k in range(width):
+                    vals[k] = self.data[p + k]
+                    x_vals[k] = x[self.indices[p + k]]
+                acc += (vals * x_vals).reduce_add()
+                p += width
+
+            while p < row_end:
+                acc += self.data[p] * x[self.indices[p]]
+                p += 1
+
+            y[i] = acc
+
+    def transpose(self) -> Self:
+        var nnz_val = self._nnz
+        if nnz_val == 0:
+            return Self(self.ncols, self.nrows)
+
+        var col_count = alloc[Int](self.ncols)
+        for j in range(self.ncols):
+            col_count[j] = 0
+        for p in range(nnz_val):
+            col_count[self.indices[p]] += 1
+
+        var result = Self(self.ncols, self.nrows, nnz_val)
+        result.indptr[0] = 0
+        for j in range(self.ncols):
+            result.indptr[j + 1] = result.indptr[j] + col_count[j]
+
+        var pos = alloc[Int](self.ncols)
+        for j in range(self.ncols):
+            pos[j] = result.indptr[j]
+
         for i in range(self.nrows):
             for p in range(self.indptr[i], self.indptr[i + 1]):
-                coo.append(self.indices[p], i, self.data[p])
-        return coo.to_csr()
+                var j = self.indices[p]
+                var dest = pos[j]
+                result.indices[dest] = i
+                result.data[dest] = self.data[p]
+                pos[j] = dest + 1
 
-    def to_dense(self) -> List[List[Scalar[Self.dtype]]]:
-        var dense: List[List[Scalar[Self.dtype]]] = []
+        col_count.free()
+        pos.free()
+        return result^
+
+    def to_dense(self) -> List[List[Float64]]:
+        var dense: List[List[Float64]] = []
         for _ in range(self.nrows):
-            var row: List[Scalar[Self.dtype]] = []
+            var row: List[Float64] = []
             for _ in range(self.ncols):
                 row.append(0)
             dense.append(row^)
 
         for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            for p in range(row_start, row_end):
+            for p in range(self.indptr[i], self.indptr[i + 1]):
                 dense[i][self.indices[p]] = self.data[p]
         return dense^
 
     @staticmethod
-    def from_dense(dense: List[List[Scalar[Self.dtype]]]) -> Self:
+    def from_dense(dense: List[List[Float64]]) -> CSRMatrix:
         var nrows = len(dense)
         if nrows == 0:
-            return Self(0, 0)
+            return CSRMatrix(0, 0)
 
         var ncols = len(dense[0])
-        var out = Self(nrows, ncols)
-        var nz = 0
-        out.indptr[0] = 0
-
+        var row_counts = alloc[Int](nrows)
         for i in range(nrows):
-            var width = ncols
-            var limit = len(dense[i])
-            if limit < width:
-                width = limit
-            for j in range(width):
-                var v = dense[i][j]
-                if v != 0:
-                    out.data.append(v)
-                    out.indices.append(j)
-                    nz += 1
-            out.indptr[i + 1] = nz
-        return out^
+            row_counts[i] = 0
+        for i in range(nrows):
+            for j in range(ncols):
+                if dense[i][j] != 0:
+                    row_counts[i] += 1
+
+        var total_nnz = 0
+        for i in range(nrows):
+            total_nnz += row_counts[i]
+
+        var result = CSRMatrix(nrows, ncols, total_nnz)
+        var offset = 0
+        result.indptr[0] = 0
+        for i in range(nrows):
+            for j in range(ncols):
+                if dense[i][j] != 0:
+                    result.data[offset] = dense[i][j]
+                    result.indices[offset] = j
+                    offset += 1
+            result.indptr[i + 1] = offset
+
+        row_counts.free()
+        return result^
 
     def write_to(self, mut writer: Some[Writer]):
         writer.write(
-            "CSRMatrix(", self.nrows, "x", self.ncols, ", nnz=", self.nnz(), ")"
+            "CSRMatrix(", self.nrows, "x", self.ncols, ", nnz=", self._nnz, ")"
         )

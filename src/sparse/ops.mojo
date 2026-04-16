@@ -1,171 +1,211 @@
-from sparse.coo import COOMatrix
+"""Sparse matrix operations with direct CSR construction.
+
+All operations produce CSR directly using UnsafePointer workspace.
+No COO intermediate. O(nnz) workspace.
+"""
+
 from sparse.csr import CSRMatrix
 
 
-def kron[dtype: DType](A: CSRMatrix[dtype], B: CSRMatrix[dtype]) -> CSRMatrix[dtype]:
-    var out = COOMatrix[dtype](A.nrows * B.nrows, A.ncols * B.ncols)
-
-    for i in range(A.nrows):
-        var a_start = A.indptr[i]
-        var a_end = A.indptr[i + 1]
-        for ap in range(a_start, a_end):
-            var a_col = A.indices[ap]
-            var a_val = A.data[ap]
-            for k in range(B.nrows):
-                var b_start = B.indptr[k]
-                var b_end = B.indptr[k + 1]
-                for bp in range(b_start, b_end):
-                    var c_row = i * B.nrows + k
-                    var c_col = a_col * B.ncols + B.indices[bp]
-                    out.append(c_row, c_col, a_val * B.data[bp])
-
-    return out.to_csr()
-
-
-def spgemm[dtype: DType](A: CSRMatrix[dtype], B: CSRMatrix[dtype]) -> CSRMatrix[dtype]:
+def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
     if A.ncols != B.nrows:
-        return CSRMatrix[dtype](A.nrows, B.ncols)
+        return CSRMatrix(A.nrows, B.ncols)
 
-    var out = COOMatrix[dtype](A.nrows, B.ncols)
+    var nrows = A.nrows
+    var ncols = B.ncols
 
-    var row_acc: List[Scalar[dtype]] = []
-    for _ in range(B.ncols):
-        row_acc.append(0)
+    var marker = alloc[Int](ncols)
+    for j in range(ncols):
+        marker[j] = -1
 
-    for i in range(A.nrows):
-        var touched: List[Int] = []
+    var row_nnz = alloc[Int](nrows)
+    for i in range(nrows):
+        var count = 0
+        for ap in range(A.indptr[i], A.indptr[i + 1]):
+            var k = A.indices[ap]
+            if k < 0 or k >= B.nrows:
+                continue
+            for bp in range(B.indptr[k], B.indptr[k + 1]):
+                var j = B.indices[bp]
+                if marker[j] != i:
+                    marker[j] = i
+                    count += 1
+        row_nnz[i] = count
 
-        var a_start = A.indptr[i]
-        var a_end = A.indptr[i + 1]
-        for ap in range(a_start, a_end):
+    var total_nnz = 0
+    for i in range(nrows):
+        total_nnz += row_nnz[i]
+
+    var result = CSRMatrix(nrows, ncols, total_nnz)
+    result.indptr[0] = 0
+    for i in range(nrows):
+        result.indptr[i + 1] = result.indptr[i] + row_nnz[i]
+
+    for j in range(ncols):
+        marker[j] = -1
+
+    for i in range(nrows):
+        var row_start = result.indptr[i]
+        var dest = row_start
+        for ap in range(A.indptr[i], A.indptr[i + 1]):
             var k = A.indices[ap]
             var a_val = A.data[ap]
             if k < 0 or k >= B.nrows:
                 continue
-
-            var b_start = B.indptr[k]
-            var b_end = B.indptr[k + 1]
-            for bp in range(b_start, b_end):
+            for bp in range(B.indptr[k], B.indptr[k + 1]):
                 var j = B.indices[bp]
-                if j < 0 or j >= B.ncols:
-                    continue
+                var b_val = B.data[bp]
+                if marker[j] < row_start:
+                    marker[j] = dest
+                    result.indices[dest] = j
+                    result.data[dest] = a_val * b_val
+                    dest += 1
+                else:
+                    result.data[marker[j]] += a_val * b_val
 
-                if row_acc[j] == 0:
-                    touched.append(j)
-                row_acc[j] += a_val * B.data[bp]
+        var row_end = dest
+        for p in range(row_start + 1, row_end):
+            var key_j = result.indices[p]
+            var key_v = result.data[p]
+            var q = p - 1
+            while q >= row_start and result.indices[q] > key_j:
+                result.indices[q + 1] = result.indices[q]
+                result.data[q + 1] = result.data[q]
+                q -= 1
+            result.indices[q + 1] = key_j
+            result.data[q + 1] = key_v
 
-        for t in range(len(touched)):
-            var j = touched[t]
-            var v = row_acc[j]
-            if v != 0:
-                out.append(i, j, v)
-            row_acc[j] = 0
-
-    return out.to_csr()
+    marker.free()
+    row_nnz.free()
+    return result^
 
 
-def spmm[dtype: DType](A: CSRMatrix[dtype], D: List[List[Scalar[dtype]]]) -> List[List[Scalar[dtype]]]:
-    var out: List[List[Scalar[dtype]]] = []
-    var dense_rows = len(D)
-    if dense_rows != A.ncols:
-        return out^
-
-    var p = 0
-    if dense_rows > 0:
-        p = len(D[0])
-
-    for _ in range(A.nrows):
-        var row: List[Scalar[dtype]] = []
-        for _ in range(p):
-            row.append(0)
-        out.append(row^)
-
+def add(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
+    var row_nnz = alloc[Int](A.nrows)
     for i in range(A.nrows):
-        var a_start = A.indptr[i]
+        var count = 0
+        var a = A.indptr[i]
         var a_end = A.indptr[i + 1]
-        for ap in range(a_start, a_end):
-            var k = A.indices[ap]
-            if k < 0 or k >= dense_rows:
-                continue
-
-            var a_val = A.data[ap]
-            var width = len(D[k])
-            if width > p:
-                width = p
-            for j in range(width):
-                out[i][j] += a_val * D[k][j]
-
-    return out^
-
-
-def add[dtype: DType](
-    A: CSRMatrix[dtype], B: CSRMatrix[dtype]
-) -> CSRMatrix[dtype]:
-    """Sparse add: C = A + B. O(nnz_A + nnz_B) via merge of sorted indices.
-
-    Eliminates the O(n²) dense round-trip previously used in galerkin.mojo.
-    """
-    var coo = COOMatrix[dtype](A.nrows, A.ncols)
-
-    for i in range(A.nrows):
-        var a_start = A.indptr[i]
-        var a_end = A.indptr[i + 1]
-        var b_start = B.indptr[i]
+        var b = B.indptr[i]
         var b_end = B.indptr[i + 1]
 
-        var a = a_start
-        var b = b_start
-
-        # Merge-sort style: both index lists are sorted within each row
         while a < a_end and b < b_end:
             if A.indices[a] < B.indices[b]:
-                coo.append(i, A.indices[a], A.data[a])
+                count += 1
                 a += 1
             elif A.indices[a] > B.indices[b]:
-                coo.append(i, B.indices[b], B.data[b])
+                count += 1
                 b += 1
             else:
-                # Same column: add values
-                var summed = A.data[a] + B.data[b]
-                if summed != 0:
-                    coo.append(i, A.indices[a], summed)
+                var s = A.data[a] + B.data[b]
+                if s != 0:
+                    count += 1
+                a += 1
+                b += 1
+        count += (a_end - a) + (b_end - b)
+        row_nnz[i] = count
+
+    var total_nnz = 0
+    for i in range(A.nrows):
+        total_nnz += row_nnz[i]
+
+    var result = CSRMatrix(A.nrows, A.ncols, total_nnz)
+    result.indptr[0] = 0
+    for i in range(A.nrows):
+        result.indptr[i + 1] = result.indptr[i] + row_nnz[i]
+    var dest = 0
+    for i in range(A.nrows):
+        var a = A.indptr[i]
+        var a_end = A.indptr[i + 1]
+        var b = B.indptr[i]
+        var b_end = B.indptr[i + 1]
+
+        while a < a_end and b < b_end:
+            if A.indices[a] < B.indices[b]:
+                result.data[dest] = A.data[a]
+                result.indices[dest] = A.indices[a]
+                dest += 1
+                a += 1
+            elif A.indices[a] > B.indices[b]:
+                result.data[dest] = B.data[b]
+                result.indices[dest] = B.indices[b]
+                dest += 1
+                b += 1
+            else:
+                var s = A.data[a] + B.data[b]
+                if s != 0:
+                    result.data[dest] = s
+                    result.indices[dest] = A.indices[a]
+                    dest += 1
                 a += 1
                 b += 1
 
-        # Flush remaining entries
         while a < a_end:
-            coo.append(i, A.indices[a], A.data[a])
+            result.data[dest] = A.data[a]
+            result.indices[dest] = A.indices[a]
+            dest += 1
             a += 1
         while b < b_end:
-            coo.append(i, B.indices[b], B.data[b])
+            result.data[dest] = B.data[b]
+            result.indices[dest] = B.indices[b]
+            dest += 1
             b += 1
 
-    return coo.to_csr()
+    row_nnz.free()
+    return result^
 
 
-def scale[dtype: DType](
-    alpha: Scalar[dtype], A: CSRMatrix[dtype]
-) -> CSRMatrix[dtype]:
-    """Sparse scale: B = α·A. O(nnz) — operates directly on data values.
-
-    Eliminates O(n²) dense round-trip previously used in galerkin.mojo.
-    """
-    var out = CSRMatrix[dtype](A.nrows, A.ncols)
-    # Copy structure
-    out.indptr = A.indptr.copy()
-    out.indices = A.indices.copy()
-    # Scale data values
-    out.data = []
-    for p in range(len(A.data)):
-        out.data.append(alpha * A.data[p])
-    return out^
+def scale(alpha: Float64, A: CSRMatrix) -> CSRMatrix:
+    var nnz_val = A.nnz()
+    var result = CSRMatrix(A.nrows, A.ncols, nnz_val)
+    for i in range(A.nrows + 1):
+        result.indptr[i] = A.indptr[i]
+    for p in range(nnz_val):
+        result.data[p] = alpha * A.data[p]
+        result.indices[p] = A.indices[p]
+    return result^
 
 
-def sparse_transpose[dtype: DType](
-    A: CSRMatrix[dtype],
-) -> CSRMatrix[dtype]:
-    """Sparse transpose: A^T. O(nnz) without dense round-trip.
+def diag_scale(A: CSRMatrix, row_scale: List[Float64], col_scale: List[Float64]) -> CSRMatrix:
+    var nnz_val = A.nnz()
+    var result = CSRMatrix(A.nrows, A.ncols, nnz_val)
+    for i in range(A.nrows + 1):
+        result.indptr[i] = A.indptr[i]
+    for i in range(A.nrows):
+        for p in range(A.indptr[i], A.indptr[i + 1]):
+            result.data[p] = A.data[p] * row_scale[i] * col_scale[A.indices[p]]
+            result.indices[p] = A.indices[p]
+    return result^
 
-    Builds COO in transposed order, then converts to CSR.
-    """
+
+def kron(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
+    var total_nnz = 0
+    for i in range(A.nrows):
+        var a_nnz = A.indptr[i + 1] - A.indptr[i]
+        for k in range(B.nrows):
+            var b_nnz = B.indptr[k + 1] - B.indptr[k]
+            total_nnz += a_nnz * b_nnz
+
+    var out_nrows = A.nrows * B.nrows
+    var out_ncols = A.ncols * B.ncols
+
+    var result = CSRMatrix(out_nrows, out_ncols, total_nnz)
+    var dest = 0
+    result.indptr[0] = 0
+
+    for i in range(A.nrows):
+        for k in range(B.nrows):
+            for ap in range(A.indptr[i], A.indptr[i + 1]):
+                var a_col = A.indices[ap]
+                var a_val = A.data[ap]
+                for bp in range(B.indptr[k], B.indptr[k + 1]):
+                    result.data[dest] = a_val * B.data[bp]
+                    result.indices[dest] = a_col * B.ncols + B.indices[bp]
+                    dest += 1
+            result.indptr[i * B.nrows + k + 1] = dest
+
+    return result^
+
+
+def sparse_transpose(A: CSRMatrix) -> CSRMatrix:
     return A.transpose()

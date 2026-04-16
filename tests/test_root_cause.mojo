@@ -1,0 +1,66 @@
+"""Verify root cause: error estimate needs (DD·Z - Z3)."""
+
+from std.math import sqrt, abs, exp
+
+
+comptime SQRT6: Float64 = 2.449489742783178
+comptime DD1: Float64 = (-13.0 - 7.0 * SQRT6) / 3.0
+comptime DD2: Float64 = (-13.0 + 7.0 * SQRT6) / 3.0
+comptime DD3: Float64 = -1.0 / 3.0
+
+
+def main():
+    print("=" * 70)
+    print("  Root Cause Verification")
+    print("=" * 70)
+    print()
+
+    var h_values = [0.1, 0.01, 0.001, 0.0001]
+
+    var Z1_list = [
+        [-0.015375844391430237, -0.03051553491552798, -0.045419503427764796],
+        [-0.0015482602286591616, -0.003094140860963842, -0.004637645029109222],
+        [-0.00015493319944779867, -0.0003098425726878116, -0.0004647281232140189],
+        [-1.549439222427793e-05, -3.098854615481929e-05, -4.648246179515528e-05],
+    ]
+
+    var Z3_list = [
+        [-0.09520127499051974, -0.18133429690918335, -0.2592622187207434],
+        [-0.009954632552283895, -0.019810122594834785, -0.029567456778536214],
+        [-0.0009999529919821068, -0.001998905602574729, -0.0029968588318150364],
+        [-0.00010004034488244802, -0.00020007067694294514, -0.00030009099718287846],
+    ]
+
+    print("Computing err_est = (DD1*Z1 + DD2*Z2 + DD3*Z3) - Z3")
+    print()
+
+    var prev_norm: Float64 = 0.0
+    for idx in range(len(h_values)):
+        var h = h_values[idx]
+        var Z1 = Z1_list[idx]
+        var Z3 = Z3_list[idx]
+
+        var err_est: List[Float64] = []
+        for k in range(3):
+            var DDZ = DD1 * Z1[k] + DD2 * Z1[k] + DD3 * Z3[k]
+            var err = DDZ - Z3[k]
+            err_est.append(err)
+
+        var norm = 0.0
+        for k in range(3):
+            norm += err_est[k] * err_est[k]
+        norm = sqrt(norm / 3.0)
+
+        print("h = " + String(h) + ": ||err_est|| = " + String(norm))
+        if idx > 0:
+            var ratio = norm / prev_norm
+            print("  ratio = " + String(ratio) + " (expected ~0.001 for O(h^3))")
+        prev_norm = norm
+
+    print()
+    print("=" * 70)
+    print("  Expected scaling:")
+    print("  - If ratio ~0.1   → O(h^1)")
+    print("  - If ratio ~0.01  → O(h^2)")
+    print("  - If ratio ~0.001 → O(h^3) (correct!)")
+    print("=" * 70)

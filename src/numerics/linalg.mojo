@@ -1,95 +1,155 @@
-"""Shared linear algebra operations.
+"""Sparse linear algebra operations for FPE systems.
 
-Consolidates the 4× duplicated LU solve into a single implementation.
-Provides the shared dense linear solve used by radau, lm, solver, calibrator.
+Imports modular LU from sparse_lu.mojo for sparse factorization.
 """
 
-from numerics.utils import abs_f64, zeros, copy_vec, copy_mat, swap_rows
+from numerics.utils import abs_f64, zeros
+from sparse.csr import CSRMatrix
+from sparse.csc import csr_to_csc
+from numerics.sparse_lu import SparseLU
+from std.sys import simd_width_of
 
 
-def lu_solve(A: List[List[Float64]], b: List[Float64]) raises -> List[Float64]:
-    """Solve Ax = b via LU factorization with partial pivoting.
+comptime SIMD_WIDTH = simd_width_of[DType.float64]()
 
-    Single implementation replacing 4 copies across:
-    - numerics/ode/radau.mojo
-    - numerics/optim/lm.mojo
-    - engines/fpe/solver.mojo
-    - engines/calibrator/calibrator.mojo
-    """
+
+def lu_solve(A: List[List[Float64]], b: List[Float64]) -> List[Float64]:
+    """Dense LU with partial pivoting."""
     var n = len(b)
-    var M = copy_mat(A)
-    var rhs = copy_vec(b)
+    var LU = copy_mat(A)
+    var x = copy_vec(b)
+    var perm = List[Int]()
+    for i in range(n):
+        perm.append(i)
 
-    # Forward elimination with partial pivoting
     for k in range(n):
         var pivot = k
-        var pivot_value = abs_f64(M[k][k])
+        var max_val = abs_f64(LU[k][k])
         for i in range(k + 1, n):
-            var cand = abs_f64(M[i][k])
-            if cand > pivot_value:
-                pivot_value = cand
+            if abs_f64(LU[i][k]) > max_val:
+                max_val = abs_f64(LU[i][k])
                 pivot = i
 
-        if pivot_value == 0.0:
-            raise Error("Singular linear system in lu_solve")
+        if max_val < 1e-14:
+            continue
 
         if pivot != k:
-            swap_rows(M, k, pivot)
-            var tmp_rhs = rhs[k]
-            rhs[k] = rhs[pivot]
-            rhs[pivot] = tmp_rhs
+            for j in range(n):
+                var tmp = LU[k][j]
+                LU[k][j] = LU[pivot][j]
+                LU[pivot][j] = tmp
+            var tmp_perm = x[k]
+            x[k] = x[pivot]
+            x[pivot] = tmp_perm
+            var tmp_i = perm[k]
+            perm[k] = perm[pivot]
+            perm[pivot] = tmp_i
 
+        var piv = LU[k][k]
         for i in range(k + 1, n):
-            var factor = M[i][k] / M[k][k]
-            M[i][k] = 0.0
+            LU[i][k] = LU[i][k] / piv
             for j in range(k + 1, n):
-                M[i][j] = M[i][j] - factor * M[k][j]
-            rhs[i] = rhs[i] - factor * rhs[k]
+                LU[i][j] = LU[i][j] - LU[i][k] * LU[k][j]
 
-    # Back substitution
-    var x = zeros(n)
-    for rev in range(n):
-        var i = n - 1 - rev
-        var s = rhs[i]
+    for i in range(n):
+        for j in range(i):
+            x[i] = x[i] - LU[i][j] * x[j]
+
+    for i in range(n - 1, -1, -1):
         for j in range(i + 1, n):
-            s = s - M[i][j] * x[j]
-        x[i] = s / M[i][i]
+            x[i] = x[i] - LU[i][j] * x[j]
+        x[i] = x[i] / LU[i][i]
+
     return x^
 
 
-def dense_matvec(
-    A: List[List[Float64]], x: List[Float64]
-) -> List[Float64]:
-    """Dense matrix-vector multiply: y = A @ x."""
+def compute_jacobian(
+    M: CSRMatrix,
+    K: CSRMatrix,
+) raises -> List[List[Float64]]:
+    """Compute J = -M^(-1) @ K using sparse LU."""
+    var n = M.nrows
+    var lu = SparseLU(n)
+    try:
+        lu.factorize(csr_to_csc(M))
+    except:
+        pass
+
+    var neg_K = List[List[Float64]]()
+    for _ in range(n):
+        var row = zeros(n)
+        neg_K.append(row^)
+
+    for i in range(n):
+        for p in range(K.indptr[i], K.indptr[i + 1]):
+            var col = K.indices[p]
+            neg_K[i][col] = -K.data[p]
+
+    var J = List[List[Float64]]()
+    for col in range(n):
+        var rhs = zeros(n)
+        for i in range(n):
+            rhs[i] = neg_K[i][col]
+        var x = lu.solve(rhs)
+        J.append(x^)
+
+    return J^
+
+
+def dense_matvec(A: List[List[Float64]], x: List[Float64]) -> List[Float64]:
+    """Dense matrix-vector multiply."""
     var n = len(A)
     var y = zeros(n)
     for i in range(n):
-        var acc = 0.0
-        for j in range(len(A[i])):
+        var acc: Float64 = 0.0
+        for j in range(n):
             acc += A[i][j] * x[j]
         y[i] = acc
     return y^
 
 
-def csr_to_dense_float(
-    A_data: List[Scalar[DType.float64]],
-    A_indices: List[Int],
-    A_indptr: List[Int],
-    nrows: Int,
-    ncols: Int,
-) -> List[List[Float64]]:
-    """Convert CSR components to dense List[List[Float64]]."""
-    var out: List[List[Float64]] = []
-    for _ in range(nrows):
+def sparse_matvec(A: CSRMatrix, x: List[Float64]) -> List[Float64]:
+    """Sparse matrix-vector multiply with SIMD."""
+    comptime width = SIMD_WIDTH
+    var n = A.nrows
+    var y = zeros(n)
+
+    for i in range(n):
+        var row_start = A.indptr[i]
+        var row_end = A.indptr[i + 1]
+        var acc: Float64 = 0.0
+        var p = row_start
+
+        while p + width <= row_end:
+            var vals = SIMD[DType.float64, width]()
+            var x_vals = SIMD[DType.float64, width]()
+            for k in range(width):
+                vals[k] = A.data[p + k]
+                x_vals[k] = x[A.indices[p + k]]
+            acc += (vals * x_vals).reduce_add()
+            p += width
+
+        while p < row_end:
+            acc += A.data[p] * x[A.indices[p]]
+            p += 1
+
+        y[i] = acc
+
+    return y^
+
+
+def copy_mat(A: List[List[Float64]]) -> List[List[Float64]]:
+    var result: List[List[Float64]] = []
+    for i in range(len(A)):
         var row: List[Float64] = []
-        for _ in range(ncols):
-            row.append(0.0)
-        out.append(row^)
+        for j in range(len(A[i])):
+            row.append(A[i][j])
+        result.append(row^)
+    return result^
 
-    for i in range(nrows):
-        var row_start = A_indptr[i]
-        var row_end = A_indptr[i + 1]
-        for p in range(row_start, row_end):
-            out[i][A_indices[p]] = A_data[p]
 
-    return out^
+def copy_vec(v: List[Float64]) -> List[Float64]:
+    var result: List[Float64] = []
+    for i in range(len(v)):
+        result.append(v[i])
+    return result^

@@ -29,7 +29,7 @@ def test_fpe_pipeline_small_grid() raises:
     )
     assert_true(params.is_valid())
 
-    var domain = FPEDomain(params, n_s=8, n_v=8, degree_s=3, degree_v=3)
+    var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
     var assembler = GalerkinAssembler[1]()
     var M = assembler.mass_matrix(domain)
 

@@ -1,8 +1,15 @@
 .DS_Store
 build/
 benchmarks/build/
+benchmarks/test_radau5_complete
+benchmarks/test_radau5_correct
+benchmarks/test_radau5_large
+benchmarks/test_radau5_accelerate
+benchmarks/bench_fortran_radau5
 bin/
 *.mtx
 *.pyc
 __pycache__/
 *.json
+single_price
+test_origin13
