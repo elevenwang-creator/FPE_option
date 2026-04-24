@@ -176,6 +176,54 @@ struct CSRMatrix(Movable, Writable):
 
             y[i] = acc
 
+    def spmv_triple_fixed(
+        self,
+        x1: FixedSizeVector,
+        x2: FixedSizeVector,
+        x3: FixedSizeVector,
+        mut y1: FixedSizeVector,
+        mut y2: FixedSizeVector,
+        mut y3: FixedSizeVector,
+    ):
+        """Fused triple SpMV: iterate matrix once, produce 3 outputs.
+
+        Computes y1 = A*x1, y2 = A*x2, y3 = A*x3 with one pass over
+        the CSR structure. Halves memory traffic vs 3 separate spmv_fixed.
+        """
+        y1.zero_out()
+        y2.zero_out()
+        y3.zero_out()
+
+        for i in range(self.nrows):
+            var row_start = self.indptr[i]
+            var row_end = self.indptr[i + 1]
+            var acc1: Float64 = 0
+            var acc2: Float64 = 0
+            var acc3: Float64 = 0
+
+            for p in range(row_start, row_end):
+                var j = self.indices[p]
+                var a = self.data[p]
+                acc1 += a * x1[j]
+                acc2 += a * x2[j]
+                acc3 += a * x3[j]
+
+            y1[i] = acc1
+            y2[i] = acc2
+            y3[i] = acc3
+
+    def spmv_addassign_fixed(self, x: FixedSizeVector, mut y: FixedSizeVector):
+        """Incremental SpMV: y += A*x (no zero-out, add to existing y)."""
+        for i in range(self.nrows):
+            var row_start = self.indptr[i]
+            var row_end = self.indptr[i + 1]
+            var acc: Float64 = 0
+
+            for p in range(row_start, row_end):
+                acc += self.data[p] * x[self.indices[p]]
+
+            y[i] = y[i] + acc
+
     def transpose(self) -> Self:
         var nnz_val = self._nnz
         if nnz_val == 0:

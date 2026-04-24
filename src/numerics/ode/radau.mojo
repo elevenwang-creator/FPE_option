@@ -12,10 +12,12 @@ System matrices are h-independent (following Fortran DECOMR/DECOMC):
 
 Performance optimizations:
   - Pre-allocated FixedSizeVector work buffers (zero heap allocation in hot loop)
-  - In-place spmv via CSRMatrix.spmv_fixed
+  - Fused triple SpMV: iterate K/M once per Newton iter (vs 6 separate passes)
   - In-place LU solve via SparseLU.solve_inplace
-  - SIMD-vectorized element-wise operations via FixedSizeVector methods
+  - Proper SIMD vector loads via UnsafePointer.load[width=W]()
   - Fused Newton RHS construction with SIMD
+  - Z-extrapolation from CONT polynomial for warm Newton starts
+  - Fused real system construction (no temporary CSR allocations)
 
 Reference: Hairer & Wanner, "Solving ODEs II", Ch. IV, Sec. 8
            Fortran source: RADAU5 / RADCOR / dc_lapack by E. Hairer, G. Wanner
@@ -23,12 +25,17 @@ Reference: Hairer & Wanner, "Solving ODEs II", Ch. IV, Sec. 8
 
 from numerics.ode.types import ODESolution
 from numerics.utils import (
-    FixedSizeVector, abs_f64, max_f64, min_f64, zeros, copy_vec, pow_pos,
+    FixedSizeVector,
+    abs_f64,
+    max_f64,
+    min_f64,
+    zeros,
+    copy_vec,
+    pow_pos,
 )
 from numerics.sparse_lu import SparseLU
 from sparse.csr import CSRMatrix
 from sparse.csc import CSCMatrix, csr_to_csc
-from sparse.ops import add, scale
 from std.math import sqrt, abs, min, max
 from std.sys import simd_width_of
 
@@ -59,14 +66,14 @@ comptime T22: Float64 = 2.0412935229379993199e-01
 comptime T23: Float64 = 3.8294211275726193779e-01
 comptime T31: Float64 = 9.6604818261509293619e-01
 
-comptime TI11: Float64 = 4.3255798900631553510e+00
+comptime TI11: Float64 = 4.3255798900631553510e00
 comptime TI12: Float64 = 3.3919925181580986954e-01
 comptime TI13: Float64 = 5.4177705399358748719e-01
-comptime TI21: Float64 = -4.1787185915519047273e+00
+comptime TI21: Float64 = -4.1787185915519047273e00
 comptime TI22: Float64 = -3.2768282076106238708e-01
 comptime TI23: Float64 = 4.7662355450055045196e-01
 comptime TI31: Float64 = -5.0287263494578687595e-01
-comptime TI32: Float64 = 2.5719269498556054292e+00
+comptime TI32: Float64 = 2.5719269498556054292e00
 comptime TI33: Float64 = -5.9603920482822492497e-01
 
 
@@ -107,9 +114,13 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var K = system.get_K()
         var n = len(y0)
         if n != M.nrows or n != M.ncols:
-            return ODESolution([], [], False, "RadauSparseLinear: M dimension mismatch")
+            return ODESolution(
+                [], [], False, "RadauSparseLinear: M dimension mismatch"
+            )
         if n != K.nrows or n != K.ncols:
-            return ODESolution([], [], False, "RadauSparseLinear: K dimension mismatch")
+            return ODESolution(
+                [], [], False, "RadauSparseLinear: K dimension mismatch"
+            )
 
         var t0 = t_span[0]
         var t1 = t_span[1]
@@ -137,7 +148,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var atol_work = rtol_work * (self.atol / self.rtol)
 
         var fnewt = max_f64(
-            10.0 * uround / rtol_work, min_f64(0.03, rtol_work ** 0.5)
+            10.0 * uround / rtol_work, min_f64(0.03, rtol_work**0.5)
         )
 
         var scal = FixedSizeVector(n)
@@ -202,6 +213,13 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var error_vec = FixedSizeVector(n)
         var scal_err = FixedSizeVector(n)
 
+        # B1: Pre-compute merged sparsity pattern (M ∪ K) once.
+        # On h-change, only update data[] — no structural rebuild.
+        var E1_cached = self._build_real_system(M, K, 1.0, n)
+        var E1_csc_cached = csr_to_csc(E1_cached)
+        var E2_cached = self._build_complex_system(M, K, 1.0, n)
+        var E2_csc_cached = csr_to_csc(E2_cached)
+
         while posneg * (t1 - t) > uround * max_f64(abs_f64(t), abs_f64(t1)):
             if n_steps > 100000:
                 return ODESolution(
@@ -230,15 +248,12 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 var h_ratio = abs_f64(h / h_lu)
                 need_lu = h_ratio < quot1 or h_ratio > quot2
             if need_lu:
-                var E1_h = self._build_real_system(M, K, h, n)
-                var E1_csc = csr_to_csc(E1_h)
-                lu_real = SparseLU(n)
-                lu_real.factorize(E1_csc)
+                # B1: Numeric-only update — rewrite data[] in cached CSR/CSC
+                self._update_real_data(M, K, h, n, E1_cached, E1_csc_cached)
+                lu_real.factorize(E1_csc_cached)
 
-                var E2_h = self._build_complex_system(M, K, h, n)
-                var E2_csc = csr_to_csc(E2_h)
-                lu_complex = SparseLU(2 * n)
-                lu_complex.factorize(E2_csc)
+                self._update_complex_data(M, K, h, n, E2_cached, E2_csc_cached)
+                lu_complex.factorize(E2_csc_cached)
 
                 h_lu = h
 
@@ -246,7 +261,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
             K.spmv_fixed(y, w)
 
-            if first:
+            if first or reject:
+                # Cold start: zero all stage vectors
                 Z1.zero_out()
                 Z2.zero_out()
                 Z3.zero_out()
@@ -254,12 +270,20 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 F2.zero_out()
                 F3.zero_out()
             else:
-                Z1.zero_out()
-                Z2.zero_out()
-                Z3.zero_out()
-                F1.zero_out()
-                F2.zero_out()
-                F3.zero_out()
+                # B5: Warm start — extrapolate Z from previous CONT polynomial
+                var ratio = h / h_old
+                var c1r = C1 * ratio
+                var c2r = C2 * ratio
+                var c3r = ratio
+                # Z_i(new) ≈ c_i*ratio * CONT (linear extrapolation)
+                for k_idx in range(n):
+                    Z1[k_idx] = c1r * CONT[k_idx]
+                    Z2[k_idx] = c2r * CONT[k_idx]
+                    Z3[k_idx] = c3r * CONT[k_idx]
+                # Recover F = T_inv * Z
+                F1.lin_comb_3(TI11, Z1, TI12, Z2, TI13, Z3)
+                F2.lin_comb_3(TI21, Z1, TI22, Z2, TI23, Z3)
+                F3.lin_comb_3(TI31, Z1, TI32, Z2, TI33, Z3)
 
             var newt: Int = 0
             faccon = max_f64(faccon, uround) ** 0.8
@@ -270,13 +294,9 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
             var newt_fail = False
 
             while newt < nit:
-                K.spmv_fixed(Z1, KZ1)
-                K.spmv_fixed(Z2, KZ2)
-                K.spmv_fixed(Z3, KZ3)
-
-                M.spmv_fixed(F1, MF1)
-                M.spmv_fixed(F2, MF2)
-                M.spmv_fixed(F3, MF3)
+                # B2: Fused triple SpMV — iterate K and M once each
+                K.spmv_triple_fixed(Z1, Z2, Z3, KZ1, KZ2, KZ3)
+                M.spmv_triple_fixed(F1, F2, F3, MF1, MF2, MF3)
 
                 self._build_newton_rhs(
                     rhs_real, rhs_complex, w, KZ1, KZ2, KZ3, MF1, MF2, MF3, h, n
@@ -290,19 +310,15 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
                 newt += 1
 
+                # B3: Convergence norm with proper SIMD vector loads
                 var dyno_sq = 0.0
                 comptime width = SIMD_WIDTH
                 var k = 0
                 while k + width <= n:
-                    var s_scal = SIMD[DType.float64, width]()
-                    var s_dF1 = SIMD[DType.float64, width]()
-                    var s_dF2 = SIMD[DType.float64, width]()
-                    var s_dF3 = SIMD[DType.float64, width]()
-                    for j in range(width):
-                        s_scal[j] = scal[k + j]
-                        s_dF1[j] = dF1[k + j]
-                        s_dF2[j] = dF2_dF3[k + j]
-                        s_dF3[j] = dF2_dF3[n + k + j]
+                    var s_scal = (scal.ptr() + k).load[width=width]()
+                    var s_dF1 = (dF1.ptr() + k).load[width=width]()
+                    var s_dF2 = (dF2_dF3.ptr() + k).load[width=width]()
+                    var s_dF3 = (dF2_dF3.ptr() + n + k).load[width=width]()
                     var r1 = s_dF1 / s_scal
                     var r2 = s_dF2 / s_scal
                     var r3 = s_dF3 / s_scal
@@ -310,9 +326,11 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     k += width
                 while k < n:
                     var s = scal[k]
-                    dyno_sq += (dF1[k] / s) ** 2 + (dF2_dF3[k] / s) ** 2 + (
-                        dF2_dF3[n + k] / s
-                    ) ** 2
+                    dyno_sq += (
+                        (dF1[k] / s) ** 2
+                        + (dF2_dF3[k] / s) ** 2
+                        + (dF2_dF3[n + k] / s) ** 2
+                    )
                     k += 1
                 var dyno = sqrt(dyno_sq / Float64(3 * n))
 
@@ -404,7 +422,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
             var fac = min_f64(safety, cfac / Float64(newt + 2 * nit))
             var quot = max_f64(
-                1.0 / fac2, min_f64(1.0 / fac1, err_norm ** 0.25 / fac)
+                1.0 / fac2, min_f64(1.0 / fac1, err_norm**0.25 / fac)
             )
             var h_new = h / quot
 
@@ -421,9 +439,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
                 if n_accepted > 1:
                     var facgus = (
-                        (hacc / h)
-                        * (err_norm ** 2 / erracc) ** 0.25
-                        / safety
+                        (hacc / h) * (err_norm**2 / erracc) ** 0.25 / safety
                     )
                     facgus = max_f64(1.0 / fac2, min_f64(1.0 / fac1, facgus))
                     quot = max_f64(quot, facgus)
@@ -473,40 +489,33 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= n:
-            var sw = SIMD[DType.float64, width]()
-            var sKZ1 = SIMD[DType.float64, width]()
-            var sKZ2 = SIMD[DType.float64, width]()
-            var sKZ3 = SIMD[DType.float64, width]()
-            for k in range(width):
-                sw[k] = w.ptr()[i + k]
-                sKZ1[k] = KZ1.ptr()[i + k]
-                sKZ2[k] = KZ2.ptr()[i + k]
-                sKZ3[k] = KZ3.ptr()[i + k]
+            # B3: Proper SIMD vector loads via UnsafePointer
+            var sw = (w.ptr() + i).load[width=width]()
+            var sKZ1 = (KZ1.ptr() + i).load[width=width]()
+            var sKZ2 = (KZ2.ptr() + i).load[width=width]()
+            var sKZ3 = (KZ3.ptr() + i).load[width=width]()
 
-            var sf1 = -sw - sKZ1
-            var sf2 = -sw - sKZ2
-            var sf3 = -sw - sKZ3
+            # B8: Cache negated w to avoid triple recomputation
+            var neg_sw = -sw
+            var sf1 = neg_sw - sKZ1
+            var sf2 = neg_sw - sKZ2
+            var sf3 = neg_sw - sKZ3
 
             var sW1 = TI11 * sf1 + TI12 * sf2 + TI13 * sf3
             var sW2 = TI21 * sf1 + TI22 * sf2 + TI23 * sf3
             var sW3 = TI31 * sf1 + TI32 * sf2 + TI33 * sf3
 
-            var sMF1 = SIMD[DType.float64, width]()
-            var sMF2 = SIMD[DType.float64, width]()
-            var sMF3 = SIMD[DType.float64, width]()
-            for k in range(width):
-                sMF1[k] = MF1.ptr()[i + k]
-                sMF2[k] = MF2.ptr()[i + k]
-                sMF3[k] = MF3.ptr()[i + k]
+            var sMF1 = (MF1.ptr() + i).load[width=width]()
+            var sMF2 = (MF2.ptr() + i).load[width=width]()
+            var sMF3 = (MF3.ptr() + i).load[width=width]()
 
             var s_rhs_real = h * sW1 - U1 * sMF1
             var s_rhs_cx = h * sW2 - ALPH * sMF2 + BETA * sMF3
             var s_rhs_cx2 = h * sW3 - ALPH * sMF3 - BETA * sMF2
 
-            for k in range(width):
-                rhs_real.ptr()[i + k] = s_rhs_real[k]
-                rhs_complex.ptr()[i + k] = s_rhs_cx[k]
-                rhs_complex.ptr()[n + i + k] = s_rhs_cx2[k]
+            (rhs_real.ptr() + i).store[width=width](s_rhs_real)
+            (rhs_complex.ptr() + i).store[width=width](s_rhs_cx)
+            (rhs_complex.ptr() + n + i).store[width=width](s_rhs_cx2)
             i += width
 
         while i < n:
@@ -528,7 +537,125 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         h: Float64,
         n: Int,
     ) -> CSRMatrix:
-        return add(scale(U1, M), scale(h, K))
+        # B4: Fused construction — no temporary CSR allocations
+        # E1_h = U1*M + h*K via single-pass sorted merge
+        var row_nnz = alloc[Int](n)
+        for i in range(n):
+            var count = 0
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                count += 1
+                if M.indices[m_p] < K.indices[k_p]:
+                    m_p += 1
+                elif M.indices[m_p] > K.indices[k_p]:
+                    k_p += 1
+                else:
+                    m_p += 1
+                    k_p += 1
+            count += (m_end - m_p) + (k_end - k_p)
+            row_nnz[i] = count
+
+        var total_nnz = 0
+        for i in range(n):
+            total_nnz += row_nnz[i]
+
+        var result = CSRMatrix(n, n, total_nnz)
+        result.indptr[0] = 0
+        for i in range(n):
+            result.indptr[i + 1] = result.indptr[i] + row_nnz[i]
+
+        var dest = 0
+        for i in range(n):
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                var m_col = M.indices[m_p]
+                var k_col = K.indices[k_p]
+                if m_col == k_col:
+                    result.data[dest] = U1 * M.data[m_p] + h * K.data[k_p]
+                    result.indices[dest] = m_col
+                    dest += 1
+                    m_p += 1
+                    k_p += 1
+                elif m_col < k_col:
+                    result.data[dest] = U1 * M.data[m_p]
+                    result.indices[dest] = m_col
+                    dest += 1
+                    m_p += 1
+                else:
+                    result.data[dest] = h * K.data[k_p]
+                    result.indices[dest] = k_col
+                    dest += 1
+                    k_p += 1
+            while m_p < m_end:
+                result.data[dest] = U1 * M.data[m_p]
+                result.indices[dest] = M.indices[m_p]
+                dest += 1
+                m_p += 1
+            while k_p < k_end:
+                result.data[dest] = h * K.data[k_p]
+                result.indices[dest] = K.indices[k_p]
+                dest += 1
+                k_p += 1
+
+        row_nnz.free()
+        return result^
+
+    def _update_real_data(
+        self,
+        M: CSRMatrix,
+        K: CSRMatrix,
+        h: Float64,
+        n: Int,
+        mut E1: CSRMatrix,
+        mut E1_csc: CSCMatrix,
+    ):
+        """Numeric-only update of E1 = U1*M + h*K. No structural rebuild."""
+        # Update CSR data[]
+        var dest = 0
+        for i in range(n):
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                var m_col = M.indices[m_p]
+                var k_col = K.indices[k_p]
+                if m_col == k_col:
+                    E1.data[dest] = U1 * M.data[m_p] + h * K.data[k_p]
+                    dest += 1
+                    m_p += 1
+                    k_p += 1
+                elif m_col < k_col:
+                    E1.data[dest] = U1 * M.data[m_p]
+                    dest += 1
+                    m_p += 1
+                else:
+                    E1.data[dest] = h * K.data[k_p]
+                    dest += 1
+                    k_p += 1
+            while m_p < m_end:
+                E1.data[dest] = U1 * M.data[m_p]
+                dest += 1
+                m_p += 1
+            while k_p < k_end:
+                E1.data[dest] = h * K.data[k_p]
+                dest += 1
+                k_p += 1
+        # Scatter CSR data into CSC data (same positions, same pattern)
+        for i in range(n):
+            for p in range(E1.indptr[i], E1.indptr[i + 1]):
+                var j = E1.indices[p]
+                # Find position in CSC: scan column j for row i
+                for q in range(E1_csc.colptr[j], E1_csc.colptr[j + 1]):
+                    if E1_csc.indices[q] == i:
+                        E1_csc.data[q] = E1.data[p]
+                        break
 
     def _build_complex_system(
         self,
@@ -674,3 +801,96 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
         row_nnz.free()
         return result^
+
+    def _update_complex_data(
+        self,
+        M: CSRMatrix,
+        K: CSRMatrix,
+        h: Float64,
+        n: Int,
+        mut E2: CSRMatrix,
+        mut E2_csc: CSCMatrix,
+    ):
+        """Numeric-only update of E2 (2n×2n complex system). No structural rebuild.
+        """
+        var n2 = 2 * n
+        var dest = 0
+
+        # Top-left block: ALPH*M + h*K (rows 0..n-1, cols 0..n-1)
+        for i in range(n):
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                var m_col = M.indices[m_p]
+                var k_col = K.indices[k_p]
+                if m_col == k_col:
+                    E2.data[dest] = ALPH * M.data[m_p] + h * K.data[k_p]
+                    dest += 1
+                    m_p += 1
+                    k_p += 1
+                elif m_col < k_col:
+                    E2.data[dest] = ALPH * M.data[m_p]
+                    dest += 1
+                    m_p += 1
+                else:
+                    E2.data[dest] = h * K.data[k_p]
+                    dest += 1
+                    k_p += 1
+            while m_p < m_end:
+                E2.data[dest] = ALPH * M.data[m_p]
+                dest += 1
+                m_p += 1
+            while k_p < k_end:
+                E2.data[dest] = h * K.data[k_p]
+                dest += 1
+                k_p += 1
+            # Top-right block: -BETA*M (rows 0..n-1, cols n..2n-1)
+            for p in range(M.indptr[i], M.indptr[i + 1]):
+                E2.data[dest] = -BETA * M.data[p]
+                dest += 1
+
+        # Bottom-left block: +BETA*M (rows n..2n-1, cols 0..n-1)
+        # Bottom-right block: ALPH*M + h*K (rows n..2n-1, cols n..2n-1)
+        for i in range(n):
+            for p in range(M.indptr[i], M.indptr[i + 1]):
+                E2.data[dest] = BETA * M.data[p]
+                dest += 1
+            var m_p = M.indptr[i]
+            var m_end = M.indptr[i + 1]
+            var k_p = K.indptr[i]
+            var k_end = K.indptr[i + 1]
+            while m_p < m_end and k_p < k_end:
+                var m_col = M.indices[m_p]
+                var k_col = K.indices[k_p]
+                if m_col == k_col:
+                    E2.data[dest] = ALPH * M.data[m_p] + h * K.data[k_p]
+                    dest += 1
+                    m_p += 1
+                    k_p += 1
+                elif m_col < k_col:
+                    E2.data[dest] = ALPH * M.data[m_p]
+                    dest += 1
+                    m_p += 1
+                else:
+                    E2.data[dest] = h * K.data[k_p]
+                    dest += 1
+                    k_p += 1
+            while m_p < m_end:
+                E2.data[dest] = ALPH * M.data[m_p]
+                dest += 1
+                m_p += 1
+            while k_p < k_end:
+                E2.data[dest] = h * K.data[k_p]
+                dest += 1
+                k_p += 1
+
+        # Scatter CSR data into CSC data
+        for i in range(n2):
+            for p in range(E2.indptr[i], E2.indptr[i + 1]):
+                var j = E2.indices[p]
+                for q in range(E2_csc.colptr[j], E2_csc.colptr[j + 1]):
+                    if E2_csc.indices[q] == i:
+                        E2_csc.data[q] = E2.data[p]
+                        break

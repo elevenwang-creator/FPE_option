@@ -3,6 +3,9 @@
 Consolidates duplicated helpers (_abs, _max, _min, _zeros, _copy_vec, etc.)
 from 7+ files into a single source of truth. All hot-path functions are
 @always_inline to eliminate call overhead in inner loops.
+
+Performance: All SIMD operations use contiguous UnsafePointer.load/store
+instead of scalar element-by-element gathers.
 """
 
 from std.math import exp, log
@@ -90,6 +93,7 @@ struct FixedSizeVector(Copyable, Movable, Writable):
     @always_inline
     def to_list(self) -> List[Float64]:
         var out: List[Float64] = []
+        # Pre-size the list then copy
         for i in range(self._len):
             out.append(self._ptr[i])
         return out^
@@ -100,14 +104,9 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var sa = SIMD[DType.float64, width]()
-            var sb = SIMD[DType.float64, width]()
-            for k in range(width):
-                sa[k] = a._ptr[i + k]
-                sb[k] = b._ptr[i + k]
-            var sr = sa + sb
-            for k in range(width):
-                self._ptr[i + k] = sr[k]
+            var sa = (a._ptr + i).load[width=width]()
+            var sb = (b._ptr + i).load[width=width]()
+            (self._ptr + i).store[width=width](sa + sb)
             i += width
         while i < self._len:
             self._ptr[i] = a._ptr[i] + b._ptr[i]
@@ -119,14 +118,9 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var ss = SIMD[DType.float64, width]()
-            var so = SIMD[DType.float64, width]()
-            for k in range(width):
-                ss[k] = self._ptr[i + k]
-                so[k] = other._ptr[i + k]
-            var sr = ss + so
-            for k in range(width):
-                self._ptr[i + k] = sr[k]
+            var ss = (self._ptr + i).load[width=width]()
+            var so = (other._ptr + i).load[width=width]()
+            (self._ptr + i).store[width=width](ss + so)
             i += width
         while i < self._len:
             self._ptr[i] = self._ptr[i] + other._ptr[i]
@@ -140,16 +134,11 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var s1 = SIMD[DType.float64, width]()
-            var s2 = SIMD[DType.float64, width]()
-            var s3 = SIMD[DType.float64, width]()
-            for k in range(width):
-                s1[k] = v1._ptr[i + k]
-                s2[k] = v2._ptr[i + k]
-                s3[k] = v3._ptr[i + k]
+            var s1 = (v1._ptr + i).load[width=width]()
+            var s2 = (v2._ptr + i).load[width=width]()
+            var s3 = (v3._ptr + i).load[width=width]()
             var sr = c1 * s1 + c2 * s2 + c3 * s3
-            for k in range(width):
-                self._ptr[i + k] = sr[k]
+            (self._ptr + i).store[width=width](sr)
             i += width
         while i < self._len:
             self._ptr[i] = c1 * v1._ptr[i] + c2 * v2._ptr[i] + c3 * v3._ptr[i]
@@ -162,14 +151,10 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         var total = 0.0
         var i = 0
         while i + width <= self._len:
-            var sv = SIMD[DType.float64, width]()
-            var ss = SIMD[DType.float64, width]()
-            for k in range(width):
-                sv[k] = self._ptr[i + k]
-                ss[k] = scal._ptr[i + k]
+            var sv = (self._ptr + i).load[width=width]()
+            var ss = (scal._ptr + i).load[width=width]()
             var ratio = sv / ss
-            var r2 = ratio * ratio
-            total += r2.reduce_add()
+            total += (ratio * ratio).reduce_add()
             i += width
         while i < self._len:
             var ratio = self._ptr[i] / scal._ptr[i]
@@ -183,14 +168,9 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var ss = SIMD[DType.float64, width]()
-            var so = SIMD[DType.float64, width]()
-            for k in range(width):
-                ss[k] = self._ptr[i + k]
-                so[k] = src._ptr[offset + i + k]
-            var sr = ss + so
-            for k in range(width):
-                self._ptr[i + k] = sr[k]
+            var ss = (self._ptr + i).load[width=width]()
+            var so = (src._ptr + offset + i).load[width=width]()
+            (self._ptr + i).store[width=width](ss + so)
             i += width
         while i < self._len:
             self._ptr[i] = self._ptr[i] + src._ptr[offset + i]
@@ -202,14 +182,10 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var s1 = SIMD[DType.float64, width]()
-            var s2 = SIMD[DType.float64, width]()
-            for k in range(width):
-                s1[k] = v1._ptr[i + k]
-                s2[k] = v2._ptr[i + k]
+            var s1 = (v1._ptr + i).load[width=width]()
+            var s2 = (v2._ptr + i).load[width=width]()
             var sr = c1 * s1 + c2 * s2
-            for k in range(width):
-                self._ptr[i + k] = sr[k]
+            (self._ptr + i).store[width=width](sr)
             i += width
         while i < self._len:
             self._ptr[i] = c1 * v1._ptr[i] + c2 * v2._ptr[i]
@@ -223,14 +199,11 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var sy = SIMD[DType.float64, width]()
-            for k in range(width):
-                sy[k] = y._ptr[i + k]
+            var sy = (y._ptr + i).load[width=width]()
             var sa = SIMD[DType.float64, width](safe_atol)
             var sr = SIMD[DType.float64, width](safe_rtol)
             var result = sa + sr * abs(sy)
-            for k in range(width):
-                self._ptr[i + k] = result[k]
+            (self._ptr + i).store[width=width](result)
             i += width
         while i < self._len:
             self._ptr[i] = safe_atol + safe_rtol * abs_f64(y._ptr[i])
@@ -242,17 +215,25 @@ struct FixedSizeVector(Copyable, Movable, Writable):
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
-            var sa = SIMD[DType.float64, width]()
-            var sb = SIMD[DType.float64, width]()
-            for k in range(width):
-                sa[k] = a._ptr[i + k]
-                sb[k] = b._ptr[i + k]
-            var sr = sa - alpha * sb
-            for k in range(width):
-                self._ptr[i + k] = sr[k]
+            var sa = (a._ptr + i).load[width=width]()
+            var sb = (b._ptr + i).load[width=width]()
+            (self._ptr + i).store[width=width](sa - alpha * sb)
             i += width
         while i < self._len:
             self._ptr[i] = a._ptr[i] - alpha * b._ptr[i]
+            i += 1
+
+    @always_inline
+    def scale_assign(mut self, alpha: Float64):
+        """Scale all elements by alpha in-place."""
+        comptime width = SIMD_WIDTH
+        var i = 0
+        while i + width <= self._len:
+            var sv = (self._ptr + i).load[width=width]()
+            (self._ptr + i).store[width=width](alpha * sv)
+            i += width
+        while i < self._len:
+            self._ptr[i] = alpha * self._ptr[i]
             i += 1
 
 

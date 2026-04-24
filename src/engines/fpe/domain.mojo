@@ -3,17 +3,10 @@ from engines.fpe.heston_params import HestonParams
 from numerics.bspline.basis import BSplineBasis
 from numerics.bspline.recombination import RecombinationBasis
 from numerics.bspline.tensor_product import TensorProductBasis
-
-
-def _linspace(a: Float64, b: Float64, n: Int) -> List[Float64]:
-    var out: List[Float64] = []
-    if n <= 1:
-        out.append(a)
-        return out^
-    var step = (b - a) / Float64(n - 1)
-    for i in range(n):
-        out.append(a + Float64(i) * step)
-    return out^
+from numerics.utils import linspace
+from sparse.csr import CSRMatrix
+from sparse.diag import DiagMatrix
+from sparse.ops import kron
 
 
 def _sort_unique(x: List[Float64]) -> List[Float64]:
@@ -36,23 +29,17 @@ def _sort_unique(x: List[Float64]) -> List[Float64]:
 
 
 def _normalize_list(x: List[Float64]) -> List[Float64]:
-    var min_val = x[0]
-    var max_val = x[0]
-    for i in range(1, len(x)):
-        if x[i] < min_val:
-            min_val = x[i]
-        if x[i] > max_val:
-            max_val = x[i]
-    var span = max_val - min_val
-    if span <= 0.0:
-        span = 1.0
-    var out: List[Float64] = []
-    for i in range(len(x)):
-        out.append((x[i] - min_val) / span)
-    return out^
+    var gen = GenerateKnots(1, 1)
+    return gen.normalize(x)
 
 
-def _grid_create(mean: Float64, std_dev: Float64, bound: Tuple[Float64, Float64], num_insert: Int = 251, is_v: Bool = False) -> List[Float64]:
+def _grid_create(
+    mean: Float64,
+    std_dev: Float64,
+    bound: Tuple[Float64, Float64],
+    num_insert: Int = 251,
+    is_v: Bool = False,
+) -> List[Float64]:
     var lb = bound[0]
     var ub = bound[1]
     var lb_interm = mean - 5.0 * std_dev
@@ -62,25 +49,35 @@ def _grid_create(mean: Float64, std_dev: Float64, bound: Tuple[Float64, Float64]
     var left_trail = num_insert * 20 // 100
 
     var x: List[Float64] = []
-    var seg1 = _linspace(lb, lb_interm, left_trail)
-    for i in range(len(seg1)): x.append(seg1[i])
-    var seg2 = _linspace(lb_interm, mean - std_dev / 5.0, num_interm // 3)
-    for i in range(len(seg2)): x.append(seg2[i])
-    var seg3 = _linspace(mean - std_dev / 5.0, mean + std_dev / 5.0, num_interm // 3)
-    for i in range(len(seg3)): x.append(seg3[i])
+    var seg1 = linspace(lb, lb_interm, left_trail)
+    for i in range(len(seg1)):
+        x.append(seg1[i])
+    var seg2 = linspace(lb_interm, mean - std_dev / 5.0, num_interm // 3)
+    for i in range(len(seg2)):
+        x.append(seg2[i])
+    var seg3 = linspace(
+        mean - std_dev / 5.0, mean + std_dev / 5.0, num_interm // 3
+    )
+    for i in range(len(seg3)):
+        x.append(seg3[i])
     x.append(mean)
-    var seg4 = _linspace(mean + std_dev / 5.0, ub_interm, num_interm // 3)
-    for i in range(len(seg4)): x.append(seg4[i])
-    var seg5 = _linspace(ub_interm, ub, right_trail)
-    for i in range(len(seg5)): x.append(seg5[i])
-    var seg6 = _linspace(ub - 0.1, ub, num_insert * 10 // 100)
-    for i in range(len(seg6)): x.append(seg6[i])
+    var seg4 = linspace(mean + std_dev / 5.0, ub_interm, num_interm // 3)
+    for i in range(len(seg4)):
+        x.append(seg4[i])
+    var seg5 = linspace(ub_interm, ub, right_trail)
+    for i in range(len(seg5)):
+        x.append(seg5[i])
+    var seg6 = linspace(ub - 0.1, ub, num_insert * 10 // 100)
+    for i in range(len(seg6)):
+        x.append(seg6[i])
 
     if is_v:
-        var zero_seg = _linspace(0.0, 0.01, num_insert * 20 // 100)
+        var zero_seg = linspace(0.0, 0.01, num_insert * 20 // 100)
         var new_x: List[Float64] = []
-        for i in range(len(zero_seg)): new_x.append(zero_seg[i])
-        for i in range(len(x)): new_x.append(x[i])
+        for i in range(len(zero_seg)):
+            new_x.append(zero_seg[i])
+        for i in range(len(x)):
+            new_x.append(x[i])
         x = new_x^
 
     return _sort_unique(x)^
@@ -168,23 +165,33 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         self.v_max = params.V_max
 
         var s_gen = GenerateKnots(
-            n=n_s, degree=Self.degree_s, method="non-uniform",
+            n=n_s,
+            degree=Self.degree_s,
+            method="non-uniform",
             center=0.1,
             boundary=(self.s_min, self.s_max),
-            mean=params.S0, std=0.1
+            mean=params.S0,
+            std=0.1,
         )
         self.s_knots = s_gen.generate_knots()
 
         var v_gen = GenerateKnots(
-            n=n_v, degree=Self.degree_v, method="non-uniform",
+            n=n_v,
+            degree=Self.degree_v,
+            method="non-uniform",
             center=0.1,
             boundary=(self.v_min, self.v_max),
-            mean=params.V0, std=0.001
+            mean=params.V0,
+            std=0.001,
         )
         self.v_knots = v_gen.generate_knots()
 
-        var s_grid_phys = _grid_create(params.S0, 0.1, (self.s_min, self.s_max), num_insert, is_v=False)
-        var v_grid_phys = _grid_create(params.V0, 0.001, (self.v_min, self.v_max), num_insert, is_v=True)
+        var s_grid_phys = _grid_create(
+            params.S0, 0.1, (self.s_min, self.s_max), num_insert, is_v=False
+        )
+        var v_grid_phys = _grid_create(
+            params.V0, 0.001, (self.v_min, self.v_max), num_insert, is_v=True
+        )
 
         var grid_s = _normalize_list(s_grid_phys)
         var grid_v = _normalize_list(v_grid_phys)
@@ -203,17 +210,32 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
 
         self.s_points_phys = List[Float64]()
         for i in range(len(self.s_points)):
-            self.s_points_phys.append(self.s_min + self.s_points[i] * (self.s_max - self.s_min))
+            self.s_points_phys.append(
+                self.s_min + self.s_points[i] * (self.s_max - self.s_min)
+            )
         self.v_points_phys = List[Float64]()
         for i in range(len(self.v_points)):
-            self.v_points_phys.append(self.v_min + self.v_points[i] * (self.v_max - self.v_min))
+            self.v_points_phys.append(
+                self.v_min + self.v_points[i] * (self.v_max - self.v_min)
+            )
 
     def jacobian_factor(self) -> Float64:
         return self.s_max - self.s_min
 
+    def integ_weights(self) -> CSRMatrix:
+        var sw_diag = DiagMatrix(self.s_weights.copy()).to_csr()
+        var vw_diag = DiagMatrix(self.v_weights.copy()).to_csr()
+        return kron(sw_diag, vw_diag)
+
     def build_basis(self) -> TensorProductBasis[Self.degree_s, Self.degree_v]:
         var b_s = BSplineBasis[Self.degree_s](self.s_knots.copy())
         var b_v = BSplineBasis[Self.degree_v](self.v_knots.copy())
-        var r_s = RecombinationBasis[Self.degree_s](b_s^, left_cond="dirichlet", right_cond="neumann")
-        var r_v = RecombinationBasis[Self.degree_v](b_v^, left_cond="neumann", right_cond="neumann")
-        return TensorProductBasis[Self.degree_s, Self.degree_v](basis_s=r_s^, basis_v=r_v^)
+        var r_s = RecombinationBasis[Self.degree_s](
+            b_s^, left_cond="dirichlet", right_cond="neumann"
+        )
+        var r_v = RecombinationBasis[Self.degree_v](
+            b_v^, left_cond="neumann", right_cond="neumann"
+        )
+        return TensorProductBasis[Self.degree_s, Self.degree_v](
+            basis_s=r_s^, basis_v=r_v^
+        )

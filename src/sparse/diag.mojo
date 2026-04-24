@@ -29,3 +29,10 @@ struct DiagMatrix(Movable):
             result.indptr[i + 1] = dest
 
         return result^
+
+
+def identity_csr(n: Int) -> CSRMatrix:
+    var values: List[Float64] = []
+    for i in range(n):
+        values.append(1.0)
+    return DiagMatrix(values^).to_csr()
