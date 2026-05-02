@@ -14,6 +14,7 @@ from server.pdf_cache import PDFGrid
 from server.interpolator import Interpolator
 from server.payoffs import BarrierDownAndIn, BarrierUpAndOut, EuropeanCall, EuropeanPut
 from server.greeks import Greeks
+from server.option_types import PricingResult
 from std.sys import simd_width_of
 from std.algorithm import parallelize
 
@@ -37,15 +38,6 @@ struct PricingRequest(Copyable, Movable):
             and self.payoff_type >= 0
             and self.payoff_type <= 3
         )
-
-
-@fieldwise_init
-struct PricingResult(Copyable, Movable, Writable):
-    var price: Float64
-    var delta: Float64
-    var gamma: Float64
-    var vega: Float64
-    var success: Bool
 
 
 @fieldwise_init
