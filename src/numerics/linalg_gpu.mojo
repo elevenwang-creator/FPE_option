@@ -2,11 +2,10 @@
 
 from std.gpu import block_idx, thread_idx, block_dim
 from layout import Layout, LayoutTensor
-from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, CUDA_DTYPE, CUDA_VEC_LAYOUT
-from std.sys import has_apple_gpu_accelerator
+from gpu_utils.dtype import GPU_DTYPE, GPU_VEC_LAYOUT
 
-comptime GPU_LA_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
-comptime GPU_LA_VEC = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
+comptime GPU_LA_DTYPE = GPU_DTYPE
+comptime GPU_LA_VEC = GPU_VEC_LAYOUT
 comptime GPU_LA_SCALAR = Scalar[GPU_LA_DTYPE]
 
 

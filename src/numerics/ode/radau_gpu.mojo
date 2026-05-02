@@ -17,12 +17,11 @@ Workspace layout per batch element (9n^2 + 14n entries available):
 
 from std.gpu import block_idx, thread_idx, block_dim, barrier
 from layout import Layout, LayoutTensor
-from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N, CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N
-from std.sys import has_apple_gpu_accelerator
+from gpu_utils.dtype import GPU_DTYPE, GPU_VEC_LAYOUT, GPU_MAX_N
 
-comptime GPU_RADAU_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
-comptime GPU_RADAU_VEC = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
-comptime GPU_RADAU_MAX_N = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
+comptime GPU_RADAU_DTYPE = GPU_DTYPE
+comptime GPU_RADAU_VEC = GPU_VEC_LAYOUT
+comptime GPU_RADAU_MAX_N = GPU_MAX_N
 comptime GPU_R_SCALAR = Scalar[GPU_RADAU_DTYPE]
 
 

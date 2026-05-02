@@ -10,17 +10,12 @@ Kernels use comptime layouts for GPU compatibility.
 
 from std.gpu import block_idx, thread_idx, block_dim
 from layout import LayoutTensor
-from gpu_utils.dtype import (
-    METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N,
-    CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N,
-)
-from std.sys import has_apple_gpu_accelerator
+from gpu_utils.dtype import GPU_DTYPE, GPU_VEC_LAYOUT, GPU_MAX_N
 
 
-# Backend-specific types - automatically selected via ternary expressions
-comptime PRICER_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
-comptime PRICER_MAX_OPTIONS = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
-comptime PRICER_VEC_LAYOUT = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
+comptime PRICER_DTYPE = GPU_DTYPE
+comptime PRICER_MAX_OPTIONS = GPU_MAX_N
+comptime PRICER_VEC_LAYOUT = GPU_VEC_LAYOUT
 
 
 def payoff_integration_kernel(
