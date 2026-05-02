@@ -20,6 +20,7 @@ def _make_weights(
     return W^
 
 
+@always_inline
 def _linear(
     W: List[List[Float64]], b: List[Float64], x: List[Float64]
 ) -> List[Float64]:
@@ -42,6 +43,7 @@ def _linear(
     return y^
 
 
+@always_inline
 def _sin_vec(x: List[Float64]) -> List[Float64]:
     var out = zeros(len(x))
     for i in range(len(x)):

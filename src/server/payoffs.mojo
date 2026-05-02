@@ -74,10 +74,3 @@ struct EuropeanPut(Payoff):
         return "EuropeanPut"
 
 
-struct PayoffRegistry:
-    """Extensible payoff dispatch using comptime specialization."""
-
-    @staticmethod
-    def evaluate[P: Payoff](mut p: P, S: Float64, K: Float64, barrier: Float64) -> Float64:
-        return p.evaluate(S, K, barrier)
-

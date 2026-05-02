@@ -1,4 +1,4 @@
-from numerics.utils import pow_pos, max_f64
+from numerics.utils import pow_pos, max_f64, abs_f64
 
 from engines.nais.nais_net import NaisNet
 from std.math import exp, log, sqrt
@@ -19,12 +19,6 @@ def _norm_cdf(x: Float64) -> Float64:
     var t = 1.0 / (1.0 + p * ax)
     var y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * exp(-ax * ax)
     return 0.5 * (1.0 + sign * y)
-
-
-def _abs_f64(x: Float64) -> Float64:
-    if x < 0.0:
-        return -x
-    return x
 
 
 def _bs_call_price(S: Float64, K: Float64, T: Float64, r: Float64, sigma: Float64) -> Float64:
@@ -54,7 +48,7 @@ def _implied_vol_newton(
     for _ in range(50):
         var bs_price = _bs_call_price(S, K, T, r, sigma)
         var diff = bs_price - price
-        if _abs_f64(diff) < 1e-8:
+        if abs_f64(diff) < 1e-8:
             return sigma
         var vega = _bs_vega(S, K, T, r, sigma)
         if vega < 1e-12:

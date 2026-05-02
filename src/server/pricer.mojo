@@ -65,8 +65,16 @@ struct Pricer[B: Int]:
     def _price_single(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
         """CPU path: pre-compute weights once, then integrate for each option."""
 
-        var ds_weights = self._compute_trap_weights(grid.s_points)
-        var dv_weights = self._compute_trap_weights(grid.v_points)
+        var ds_weights: List[Float64] = []
+        var dv_weights: List[Float64] = []
+        if len(grid.ds_weights) > 0:
+            ds_weights = grid.ds_weights.copy()
+        else:
+            ds_weights = self._compute_trap_weights(grid.s_points)
+        if len(grid.dv_weights) > 0:
+            dv_weights = grid.dv_weights.copy()
+        else:
+            dv_weights = self._compute_trap_weights(grid.v_points)
 
         var results: List[PricingResult] = []
         for req in requests:
@@ -103,8 +111,16 @@ struct Pricer[B: Int]:
                 price=0.0, delta=0.0, gamma=0.0, vega=0.0, success=False
             ))
 
-        var ds_weights = self._compute_trap_weights(grid.s_points)
-        var dv_weights = self._compute_trap_weights(grid.v_points)
+        var ds_weights: List[Float64] = []
+        var dv_weights: List[Float64] = []
+        if len(grid.ds_weights) > 0:
+            ds_weights = grid.ds_weights.copy()
+        else:
+            ds_weights = self._compute_trap_weights(grid.s_points)
+        if len(grid.dv_weights) > 0:
+            dv_weights = grid.dv_weights.copy()
+        else:
+            dv_weights = self._compute_trap_weights(grid.v_points)
 
         @parameter
         def worker(i: Int):
@@ -250,9 +266,17 @@ struct Pricer[B: Int]:
 
         Retained for backward compatibility. Uses on-the-fly weight computation.
         """
-        var ds_weights = self._compute_trap_weights(grid.s_points)
-        var dv_weights = self._compute_trap_weights(grid.v_points)
-        return self._integrate_payoff_fast(grid, req, ds_weights, dv_weights)
+    var ds_weights: List[Float64] = []
+    var dv_weights: List[Float64] = []
+    if len(grid.ds_weights) > 0:
+        ds_weights = grid.ds_weights.copy()
+    else:
+        ds_weights = self._compute_trap_weights(grid.s_points)
+    if len(grid.dv_weights) > 0:
+        dv_weights = grid.dv_weights.copy()
+    else:
+        dv_weights = self._compute_trap_weights(grid.v_points)
+    return self._integrate_payoff_fast(grid, req, ds_weights, dv_weights)
 
     def _integrate_payoff_fast(
         self,
