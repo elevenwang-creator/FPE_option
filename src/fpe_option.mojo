@@ -6,7 +6,6 @@ from engines.fpe.solver import FPESolver
 from server.pricing_engine import PricingEngine
 from server.pdf_cache import PDFGrid
 from server.pricer import PricingRequest, PricingResult
-from server.option_types import PricingResult as PricingResultType
 from server.option_types import RoughBergomiParams, NAISModel
 from engines.nais.trainer import Trainer
 from engines.nais.inferencer import Inferencer
@@ -27,26 +26,15 @@ def _param_hash(params: HestonParams) -> UInt64:
     return h
 
 
-struct _SolveResult(Copyable, Movable):
-    var engine: PricingEngine
-    var param_hash: UInt64
-
-    def __init__(out self, var engine: PricingEngine, param_hash: UInt64):
-        self.engine = engine^
-        self.param_hash = param_hash
-
-
-def _solve_and_cache(
+def _build_pdf_grid(
     heston: HestonParams,
-    n_s: Int = 38,
-    n_v: Int = 38,
-    rtol: Float64 = 1e-4,
-    atol: Float64 = 1e-6,
-) raises -> _SolveResult:
-    var param_hash = _param_hash(heston)
-    var engine = PricingEngine()
+    n_s: Int,
+    n_v: Int,
+    rtol: Float64,
+    atol: Float64,
+) raises -> PDFGrid:
     var domain = FPEDomain[3, 3](heston, n_s=n_s, n_v=n_v)
-    var solver = FPESolver[1](rtol=rtol, atol=atol, max_step=0.1)
+    var solver = FPESolver[1](rtol=rtol, atol=atol, max_step=0.1, first_step=0.0)
     var t_eval: List[Float64] = [0.0, heston.T]
     var sol = solver.solve(domain, heston, t_eval)
 
@@ -70,8 +58,7 @@ def _solve_and_cache(
         dv_weights=dv^,
     )
     grid.precompute_weights()
-    engine.store_pdf(param_hash, grid^)
-    return _SolveResult(engine^, param_hash)
+    return grid^
 
 
 def price(
@@ -84,18 +71,21 @@ def price(
     rtol: Float64 = 1e-4,
     atol: Float64 = 1e-6,
 ) raises -> PricingResult:
-    var result = _solve_and_cache(heston, n_s, n_v, rtol, atol)
+    var grid = _build_pdf_grid(heston, n_s, n_v, rtol, atol)
+    var param_hash = _param_hash(heston)
+    var engine = PricingEngine()
+    engine.store_pdf(param_hash, grid^)
     var req = PricingRequest(
         S=heston.S0,
         K=K,
         V=heston.V0,
         barrier=barrier,
         payoff_type=payoff_type,
-        param_hash=result.param_hash,
+        param_hash=param_hash,
     )
     var requests: List[PricingRequest] = [req^]
-    var results = result.engine.price[1](requests)
-    return results[0]
+    var results = engine.price[1](requests)
+    return results[0].copy()
 
 
 def price_batch(
@@ -106,7 +96,10 @@ def price_batch(
     rtol: Float64 = 1e-4,
     atol: Float64 = 1e-6,
 ) raises -> List[PricingResult]:
-    var result = _solve_and_cache(heston, n_s, n_v, rtol, atol)
+    var grid = _build_pdf_grid(heston, n_s, n_v, rtol, atol)
+    var param_hash = _param_hash(heston)
+    var engine = PricingEngine()
+    engine.store_pdf(param_hash, grid^)
     var requests: List[PricingRequest] = []
     for i in range(len(options)):
         var req = PricingRequest(
@@ -115,10 +108,10 @@ def price_batch(
             V=heston.V0,
             barrier=options[i][1],
             payoff_type=options[i][2],
-            param_hash=result.param_hash,
+            param_hash=param_hash,
         )
         requests.append(req^)
-    return result.engine.price[1](requests)
+    return engine.price[1](requests)
 
 
 def calibrate(
@@ -134,7 +127,7 @@ def calibrate(
 
 
 def nais_train(
-    bergomi: RoughBergomiParams,
+    var bergomi: RoughBergomiParams,
     iters: Int = 100,
     lr: Float64 = 1e-3,
 ) raises -> NAISModel:
@@ -142,7 +135,7 @@ def nais_train(
     var fbsde_params = bergomi.to_fbsde_params()
     var trainer = Trainer[1](learning_rate=lr, n_iter=iters)
     var losses = trainer.train(net, fbsde_params)
-    return NAISModel(net=net^, params=bergomi)
+    return NAISModel(net=net^, params=bergomi^)
 
 
 def nais_vol_surface(

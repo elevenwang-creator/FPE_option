@@ -31,19 +31,19 @@ def _integrate_call_price(
     var n_v = len(domain.v_points)
 
     for i in range(n_s):
-        var s_phys = domain.map_s_to_physical(domain.s_points[i])
+        var s_phys = domain.s_points_phys[i]
         var ds = 1.0
         if i > 0 and i < n_s - 1:
-            var s_prev = domain.map_s_to_physical(domain.s_points[i - 1])
-            var s_next = domain.map_s_to_physical(domain.s_points[i + 1])
+            var s_prev = domain.s_points_phys[i - 1]
+            var s_next = domain.s_points_phys[i + 1]
             ds = 0.5 * (s_next - s_prev)
 
         var payoff = max_f64(s_phys - strike, 0.0)
         for j in range(n_v):
             var dv = 1.0
             if j > 0 and j < n_v - 1:
-                var v_prev = domain.map_v_to_physical(domain.v_points[j - 1])
-                var v_next = domain.map_v_to_physical(domain.v_points[j + 1])
+                var v_prev = domain.v_points_phys[j - 1]
+                var v_next = domain.v_points_phys[j + 1]
                 dv = 0.5 * (v_next - v_prev)
             price += payoff * pdf[i][j] * ds * dv
 
@@ -83,7 +83,7 @@ struct ObjectiveFunction[B: Int](Copyable, Movable):
             )
 
         var residuals: List[Float64] = []
-        var solver = FPESolver[Self.B](rtol=1e-5, atol=1e-7, max_step=0.02)
+        var solver = FPESolver[Self.B](rtol=1e-5, atol=1e-7, max_step=0.02, first_step=0.0)
         var pdf_comp = PDFComputer[Self.B]()
 
         for i in range(len(self.market_prices)):
