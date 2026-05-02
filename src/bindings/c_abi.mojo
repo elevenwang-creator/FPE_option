@@ -64,9 +64,6 @@ def fpe_price_single(
     out_gamma: UnsafePointer[Float64, MutAnyOrigin],
 ) raises -> Int32:
     """Price a single option. Returns 0 on success, 1 on error."""
-    if out_price.is_null() or out_delta.is_null() or out_gamma.is_null():
-        return 1
-
     var engine = PricingEngine()
     _seed_grid(engine, param_hash, 0.5)
 
@@ -103,10 +100,6 @@ def fpe_price_batch(
     out_gammas: UnsafePointer[Float64, MutAnyOrigin],
 ) raises -> Int32:
     """Price batch of options. Returns 0 on success, 1 on error."""
-    if S.is_null() or K.is_null() or T.is_null() or barrier.is_null() or payoff_type.is_null():
-        return 1
-    if out_prices.is_null() or out_deltas.is_null() or out_gammas.is_null():
-        return 1
     if count <= 0:
         return 1
 
