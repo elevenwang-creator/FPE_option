@@ -17,11 +17,15 @@ def _norm_cdf(x: Float64) -> Float64:
         sign = -1.0
     var ax = x * sign
     var t = 1.0 / (1.0 + p * ax)
-    var y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * exp(-ax * ax)
+    var y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * exp(
+        -ax * ax
+    )
     return 0.5 * (1.0 + sign * y)
 
 
-def _bs_call_price(S: Float64, K: Float64, T: Float64, r: Float64, sigma: Float64) -> Float64:
+def _bs_call_price(
+    S: Float64, K: Float64, T: Float64, r: Float64, sigma: Float64
+) -> Float64:
     """Black-Scholes call option price."""
     if sigma <= 0.0 or T <= 0.0:
         return max_f64(S - K, 0.0)
@@ -30,7 +34,9 @@ def _bs_call_price(S: Float64, K: Float64, T: Float64, r: Float64, sigma: Float6
     return S * _norm_cdf(d1) - K * exp(-r * T) * _norm_cdf(d2)
 
 
-def _bs_vega(S: Float64, K: Float64, T: Float64, r: Float64, sigma: Float64) -> Float64:
+def _bs_vega(
+    S: Float64, K: Float64, T: Float64, r: Float64, sigma: Float64
+) -> Float64:
     """Black-Scholes Vega = dC/d(sigma)."""
     if sigma <= 0.0 or T <= 0.0:
         return 0.0
@@ -83,7 +89,8 @@ struct Inferencer[B: Int]:
     def vol_surface(
         self, strikes: List[Float64], expiries: List[Float64]
     ) -> List[List[Float64]]:
-        """Generate implied vol surface by inverting Black-Scholes on the KxT grid."""
+        """Generate implied vol surface by inverting Black-Scholes on the KxT grid.
+        """
         var r = self.risk_free_rate
         var surface: List[List[Float64]] = []
         for i in range(len(expiries)):

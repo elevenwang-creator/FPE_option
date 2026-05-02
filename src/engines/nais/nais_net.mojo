@@ -5,10 +5,6 @@ from numerics.nn.autograd import Tape
 from std.math import sin
 
 
-
-
-
-
 def _make_weights(
     in_dim: Int, out_dim: Int, scale: Float64
 ) -> List[List[Float64]]:
@@ -126,7 +122,10 @@ struct NaisNet(Copyable, Movable):
         return (u_vec[0], phi^)
 
     def forward_tracked(
-        self, t: Float64, x: List[Float64], mut tape: Tape,
+        self,
+        t: Float64,
+        x: List[Float64],
+        mut tape: Tape,
         param_indices: List[Int] = [],
     ) raises -> Tuple[Int, List[Int]]:
         """Forward pass with operation recording on tape.
@@ -142,21 +141,55 @@ struct NaisNet(Copyable, Movable):
         # layer2_input, layer3_input, layer4_input, layer5, layer6
         var off_layer1 = 0
         var layer1_w_cols = len(self.layer1[0]) if len(self.layer1) > 0 else 0
-        var off_layer2 = off_layer1 + len(self.layer1) * layer1_w_cols + len(self.layer1_b)
-        var layer2_w_cols = len(self.layer2.W[0]) if len(self.layer2.W) > 0 else 0
-        var off_layer3 = off_layer2 + len(self.layer2.W) * layer2_w_cols + len(self.layer2.b)
-        var layer3_w_cols = len(self.layer3.W[0]) if len(self.layer3.W) > 0 else 0
-        var off_layer4 = off_layer3 + len(self.layer3.W) * layer3_w_cols + len(self.layer3.b)
-        var layer4_w_cols = len(self.layer4.W[0]) if len(self.layer4.W) > 0 else 0
-        var off_layer2_input = off_layer4 + len(self.layer4.W) * layer4_w_cols + len(self.layer4.b)
-        var l2i_cols = len(self.layer2_input[0]) if len(self.layer2_input) > 0 else 0
-        var off_layer3_input = off_layer2_input + len(self.layer2_input) * l2i_cols + len(self.layer2_input_b)
-        var l3i_cols = len(self.layer3_input[0]) if len(self.layer3_input) > 0 else 0
-        var off_layer4_input = off_layer3_input + len(self.layer3_input) * l3i_cols + len(self.layer3_input_b)
-        var l4i_cols = len(self.layer4_input[0]) if len(self.layer4_input) > 0 else 0
-        var off_layer5 = off_layer4_input + len(self.layer4_input) * l4i_cols + len(self.layer4_input_b)
+        var off_layer2 = (
+            off_layer1 + len(self.layer1) * layer1_w_cols + len(self.layer1_b)
+        )
+        var layer2_w_cols = (
+            len(self.layer2.W[0]) if len(self.layer2.W) > 0 else 0
+        )
+        var off_layer3 = (
+            off_layer2 + len(self.layer2.W) * layer2_w_cols + len(self.layer2.b)
+        )
+        var layer3_w_cols = (
+            len(self.layer3.W[0]) if len(self.layer3.W) > 0 else 0
+        )
+        var off_layer4 = (
+            off_layer3 + len(self.layer3.W) * layer3_w_cols + len(self.layer3.b)
+        )
+        var layer4_w_cols = (
+            len(self.layer4.W[0]) if len(self.layer4.W) > 0 else 0
+        )
+        var off_layer2_input = (
+            off_layer4 + len(self.layer4.W) * layer4_w_cols + len(self.layer4.b)
+        )
+        var l2i_cols = (
+            len(self.layer2_input[0]) if len(self.layer2_input) > 0 else 0
+        )
+        var off_layer3_input = (
+            off_layer2_input
+            + len(self.layer2_input) * l2i_cols
+            + len(self.layer2_input_b)
+        )
+        var l3i_cols = (
+            len(self.layer3_input[0]) if len(self.layer3_input) > 0 else 0
+        )
+        var off_layer4_input = (
+            off_layer3_input
+            + len(self.layer3_input) * l3i_cols
+            + len(self.layer3_input_b)
+        )
+        var l4i_cols = (
+            len(self.layer4_input[0]) if len(self.layer4_input) > 0 else 0
+        )
+        var off_layer5 = (
+            off_layer4_input
+            + len(self.layer4_input) * l4i_cols
+            + len(self.layer4_input_b)
+        )
         var l5_cols = len(self.layer5[0]) if len(self.layer5) > 0 else 0
-        var off_layer6 = off_layer5 + len(self.layer5) * l5_cols + len(self.layer5_b)
+        var off_layer6 = (
+            off_layer5 + len(self.layer5) * l5_cols + len(self.layer5_b)
+        )
 
         # Record input values
         var t_idx = tape.record_value(t)
@@ -172,22 +205,37 @@ struct NaisNet(Copyable, Movable):
         # Layer 1: h = sin(W1 @ u_in + b1)
         var h_idx: List[Int] = []
         if use_external_params:
-            var result = self._linear_tracked_with_indices(p_idx, off_layer1, self.layer1, self.layer1_b, u_in_idx, tape)
+            var result = self._linear_tracked_with_indices(
+                p_idx, off_layer1, self.layer1, self.layer1_b, u_in_idx, tape
+            )
             h_idx = result[0].copy()
         else:
-            h_idx = self._linear_tracked_record_weights(self.layer1, self.layer1_b, u_in_idx, tape)
+            h_idx = self._linear_tracked_record_weights(
+                self.layer1, self.layer1_b, u_in_idx, tape
+            )
         for i in range(len(h_idx)):
             h_idx[i] = tape.record_sin(h_idx[i])
 
         # Layer 2: skip2 = W2_in @ u_in + b2_in, block2 = sin(skip2 + layer2(h)), h = h + block2
         var skip2_idx: List[Int] = []
         if use_external_params:
-            var result = self._linear_tracked_with_indices(p_idx, off_layer2_input, self.layer2_input, self.layer2_input_b, u_in_idx, tape)
+            var result = self._linear_tracked_with_indices(
+                p_idx,
+                off_layer2_input,
+                self.layer2_input,
+                self.layer2_input_b,
+                u_in_idx,
+                tape,
+            )
             skip2_idx = result[0].copy()
         else:
-            skip2_idx = self._linear_tracked_record_weights(self.layer2_input, self.layer2_input_b, u_in_idx, tape)
+            skip2_idx = self._linear_tracked_record_weights(
+                self.layer2_input, self.layer2_input_b, u_in_idx, tape
+            )
 
-        var block2_h_idx = self._stable_linear_forward_tracked(self.layer2, h_idx, tape, p_idx, off_layer2)
+        var block2_h_idx = self._stable_linear_forward_tracked(
+            self.layer2, h_idx, tape, p_idx, off_layer2
+        )
         var block2_idx: List[Int] = []
         for i in range(len(skip2_idx)):
             block2_idx.append(tape.record_add(skip2_idx[i], block2_h_idx[i]))
@@ -199,12 +247,23 @@ struct NaisNet(Copyable, Movable):
         # Layer 3
         var skip3_idx: List[Int] = []
         if use_external_params:
-            var result = self._linear_tracked_with_indices(p_idx, off_layer3_input, self.layer3_input, self.layer3_input_b, u_in_idx, tape)
+            var result = self._linear_tracked_with_indices(
+                p_idx,
+                off_layer3_input,
+                self.layer3_input,
+                self.layer3_input_b,
+                u_in_idx,
+                tape,
+            )
             skip3_idx = result[0].copy()
         else:
-            skip3_idx = self._linear_tracked_record_weights(self.layer3_input, self.layer3_input_b, u_in_idx, tape)
+            skip3_idx = self._linear_tracked_record_weights(
+                self.layer3_input, self.layer3_input_b, u_in_idx, tape
+            )
 
-        var block3_h_idx = self._stable_linear_forward_tracked(self.layer3, h_idx, tape, p_idx, off_layer3)
+        var block3_h_idx = self._stable_linear_forward_tracked(
+            self.layer3, h_idx, tape, p_idx, off_layer3
+        )
         var block3_idx: List[Int] = []
         for i in range(len(skip3_idx)):
             block3_idx.append(tape.record_add(skip3_idx[i], block3_h_idx[i]))
@@ -216,12 +275,23 @@ struct NaisNet(Copyable, Movable):
         # Layer 4
         var skip4_idx: List[Int] = []
         if use_external_params:
-            var result = self._linear_tracked_with_indices(p_idx, off_layer4_input, self.layer4_input, self.layer4_input_b, u_in_idx, tape)
+            var result = self._linear_tracked_with_indices(
+                p_idx,
+                off_layer4_input,
+                self.layer4_input,
+                self.layer4_input_b,
+                u_in_idx,
+                tape,
+            )
             skip4_idx = result[0].copy()
         else:
-            skip4_idx = self._linear_tracked_record_weights(self.layer4_input, self.layer4_input_b, u_in_idx, tape)
+            skip4_idx = self._linear_tracked_record_weights(
+                self.layer4_input, self.layer4_input_b, u_in_idx, tape
+            )
 
-        var block4_h_idx = self._stable_linear_forward_tracked(self.layer4, h_idx, tape, p_idx, off_layer4)
+        var block4_h_idx = self._stable_linear_forward_tracked(
+            self.layer4, h_idx, tape, p_idx, off_layer4
+        )
         var block4_idx: List[Int] = []
         for i in range(len(skip4_idx)):
             block4_idx.append(tape.record_add(skip4_idx[i], block4_h_idx[i]))
@@ -233,18 +303,26 @@ struct NaisNet(Copyable, Movable):
         # Layer 5: u = W5 @ h + b5
         var u_out_idx: List[Int] = []
         if use_external_params:
-            var result = self._linear_tracked_with_indices(p_idx, off_layer5, self.layer5, self.layer5_b, h_idx, tape)
+            var result = self._linear_tracked_with_indices(
+                p_idx, off_layer5, self.layer5, self.layer5_b, h_idx, tape
+            )
             u_out_idx = result[0].copy()
         else:
-            u_out_idx = self._linear_tracked_record_weights(self.layer5, self.layer5_b, h_idx, tape)
+            u_out_idx = self._linear_tracked_record_weights(
+                self.layer5, self.layer5_b, h_idx, tape
+            )
 
         # Layer 6: phi = W6 @ h + b6
         var phi_out_idx: List[Int] = []
         if use_external_params:
-            var result = self._linear_tracked_with_indices(p_idx, off_layer6, self.layer6, self.layer6_b, h_idx, tape)
+            var result = self._linear_tracked_with_indices(
+                p_idx, off_layer6, self.layer6, self.layer6_b, h_idx, tape
+            )
             phi_out_idx = result[0].copy()
         else:
-            phi_out_idx = self._linear_tracked_record_weights(self.layer6, self.layer6_b, h_idx, tape)
+            phi_out_idx = self._linear_tracked_record_weights(
+                self.layer6, self.layer6_b, h_idx, tape
+            )
 
         return (u_out_idx[0], phi_out_idx^)
 
@@ -285,8 +363,12 @@ struct NaisNet(Copyable, Movable):
         return count
 
     def _linear_tracked_with_indices(
-        self, p_idx: List[Int], param_offset: Int,
-        W: List[List[Float64]], b: List[Float64], x_idx: List[Int],
+        self,
+        p_idx: List[Int],
+        param_offset: Int,
+        W: List[List[Float64]],
+        b: List[Float64],
+        x_idx: List[Int],
         mut tape: Tape,
     ) -> Tuple[List[Int], Int]:
         """Linear layer using pre-recorded parameter indices starting at param_offset.
@@ -314,7 +396,9 @@ struct NaisNet(Copyable, Movable):
 
     def _linear_tracked_record_weights(
         self,
-        W: List[List[Float64]], b: List[Float64], x_idx: List[Int],
+        W: List[List[Float64]],
+        b: List[Float64],
+        x_idx: List[Int],
         mut tape: Tape,
     ) -> List[Int]:
         """Linear layer recording its own weights on tape."""

@@ -6,28 +6,6 @@ from server.pdf_cache import PDFGrid
 from server.pricing_engine import PricingEngine
 
 
-def _solve_pdf(T: Float64) raises -> Tuple[List[List[Float64]], List[Float64], List[Float64]]:
-    var params = HestonParams(
-        kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.05, T=T,
-        S0=100.0, V0=0.1, S_min=50.0, S_max=150.0, V_min=0.0, V_max=1.0,
-    )
-    var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1, first_step=0.01)
-    var t_eval: List[Float64] = [0.0, T]
-    var sol = solver.solve(domain, params, t_eval)
-
-    var n_s = len(domain.s_points)
-    var n_v = len(domain.v_points)
-    var pdf: List[List[Float64]] = []
-    for i in range(n_s):
-        var row: List[Float64] = []
-        for j in range(n_v):
-            row.append(sol[len(sol) - 1][i * n_v + j])
-        pdf.append(row^)
-
-    return (pdf^, domain.s_points.copy(), domain.v_points.copy())
-
-
 def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64) raises:
     var params = HestonParams(
         kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.05, T=T,
@@ -86,8 +64,7 @@ def fpe_price_single(
     out_gamma: UnsafePointer[Float64, MutAnyOrigin],
 ) raises -> Int32:
     """Price a single option. Returns 0 on success, 1 on error."""
-    # Null pointer checks
-    if out_price == None or out_delta == None or out_gamma == None:
+    if out_price.is_null() or out_delta.is_null() or out_gamma.is_null():
         return 1
 
     var engine = PricingEngine()
@@ -126,10 +103,9 @@ def fpe_price_batch(
     out_gammas: UnsafePointer[Float64, MutAnyOrigin],
 ) raises -> Int32:
     """Price batch of options. Returns 0 on success, 1 on error."""
-    # Null pointer checks
-    if S == None or K == None or T == None or barrier == None or payoff_type == None:
+    if S.is_null() or K.is_null() or T.is_null() or barrier.is_null() or payoff_type.is_null():
         return 1
-    if out_prices == None or out_deltas == None or out_gammas == None:
+    if out_prices.is_null() or out_deltas.is_null() or out_gammas.is_null():
         return 1
     if count <= 0:
         return 1
@@ -142,13 +118,12 @@ def fpe_price_batch(
         reqs.append(PricingRequest(
             S=S[i], K=K[i], V=0.1, barrier=barrier[i], payoff_type=Int(payoff_type[i]), param_hash=param_hash
         ))
-    
+
     var results = engine.price[1](reqs)
-    
+
     for i in range(Int(count)):
         if i < len(results):
             out_prices[i] = results[i].price
             out_deltas[i] = results[i].delta
             out_gammas[i] = results[i].gamma
     return 0
-
