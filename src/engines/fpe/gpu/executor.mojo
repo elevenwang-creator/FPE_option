@@ -10,21 +10,17 @@ Pipeline (matching CPU logic_picture.md):
 
 from std.gpu.host import DeviceContext
 from layout import Layout, LayoutTensor
-from std.sys import has_accelerator
+from std.sys import has_accelerator, has_apple_gpu_accelerator
 from std.math import ceildiv
 from gpu_utils.dtype import (
+    GPU_DTYPE,
+    GPU_VEC_LAYOUT,
+    GPU_MAX_N,
     METAL_DTYPE,
     METAL_VEC_LAYOUT,
-    METAL_MAX_N,
     CUDA_DTYPE,
     CUDA_VEC_LAYOUT,
-    CUDA_MAX_N,
 )
-from std.sys import has_apple_gpu_accelerator
-
-comptime GPU_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
-comptime GPU_VEC_LAYOUT = METAL_VEC_LAYOUT if has_apple_gpu_accelerator() else CUDA_VEC_LAYOUT
-comptime GPU_MAX_N = METAL_MAX_N if has_apple_gpu_accelerator() else CUDA_MAX_N
 
 from numerics.bspline.knots_gpu import generate_knots_gpu_kernel
 from engines.fpe.domain_gpu import grid_gpu_kernel, basis_gpu_kernel, boundary_gpu_kernel

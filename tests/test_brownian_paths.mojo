@@ -1,4 +1,4 @@
-from engines.nais.trainer import _generate_brownian_paths
+from engines.nais.utils import _generate_brownian_paths
 from std.testing import assert_true, TestSuite
 
 

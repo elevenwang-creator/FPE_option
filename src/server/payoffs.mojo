@@ -1,7 +1,12 @@
 trait Payoff:
-    def __init__(out self): ...
-    def evaluate(self, S: Float64, K: Float64, barrier: Float64) -> Float64: ...
-    def name(self) -> StaticString: ...
+    def __init__(out self):
+        ...
+
+    def evaluate(self, S: Float64, K: Float64, barrier: Float64) -> Float64:
+        ...
+
+    def name(self) -> StaticString:
+        ...
 
 
 struct BarrierUpAndOut(Payoff):
@@ -72,12 +77,3 @@ struct EuropeanPut(Payoff):
 
     def name(self) -> StaticString:
         return "EuropeanPut"
-
-
-struct PayoffRegistry:
-    """Extensible payoff dispatch using comptime specialization."""
-
-    @staticmethod
-    def evaluate[P: Payoff](mut p: P, S: Float64, K: Float64, barrier: Float64) -> Float64:
-        return p.evaluate(S, K, barrier)
-

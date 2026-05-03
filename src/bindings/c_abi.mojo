@@ -1,25 +1,40 @@
+from engines.fpe.domain import FPEDomain
+from engines.fpe.heston_params import HestonParams
+from engines.fpe.solver import FPESolver
 from server.pricer import PricingRequest
 from server.pdf_cache import PDFGrid
 from server.pricing_engine import PricingEngine
 
 
-def _uniform_pdf(n_s: Int, n_v: Int) -> List[List[Float64]]:
-    var out: List[List[Float64]] = []
-    var w = 1.0 / Float64(n_s * n_v)
-    for _ in range(n_s):
+def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64) raises:
+    var params = HestonParams(
+        kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.05, T=T,
+        S0=100.0, V0=0.1, S_min=50.0, S_max=150.0, V_min=0.0, V_max=1.0,
+    )
+    var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
+    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1, first_step=0.01)
+    var t_eval: List[Float64] = [0.0, T]
+    var sol = solver.solve(domain, params, t_eval)
+
+    var n_s = len(domain.s_points)
+    var n_v = len(domain.v_points)
+    var pdf: List[List[Float64]] = []
+    for i in range(n_s):
         var row: List[Float64] = []
-        for _ in range(n_v):
-            row.append(w)
-        out.append(row^)
-    return out^
+        for j in range(n_v):
+            row.append(sol[len(sol) - 1][i * n_v + j])
+        pdf.append(row^)
 
-
-def _seed_grid(mut engine: PricingEngine, param_hash: UInt64):
-    var s_points: List[Float64] = [80.0, 90.0, 100.0, 110.0, 120.0]
-    var v_points: List[Float64] = [0.02, 0.05, 0.1, 0.2, 0.4]
     var ds: List[Float64] = []
     var dv: List[Float64] = []
-    var grid = PDFGrid(pdf=_uniform_pdf(5, 5), s_points=s_points^, v_points=v_points^, T=0.5, ds_weights=ds^, dv_weights=dv^)
+    var grid = PDFGrid(
+        pdf=pdf^,
+        s_points=domain.s_points.copy(),
+        v_points=domain.v_points.copy(),
+        T=T,
+        ds_weights=ds^,
+        dv_weights=dv^,
+    )
     grid.precompute_weights()
     engine.store_pdf(param_hash, grid^)
 
@@ -47,14 +62,10 @@ def fpe_price_single(
     out_price: UnsafePointer[Float64, MutAnyOrigin],
     out_delta: UnsafePointer[Float64, MutAnyOrigin],
     out_gamma: UnsafePointer[Float64, MutAnyOrigin],
-) -> Int32:
+) raises -> Int32:
     """Price a single option. Returns 0 on success, 1 on error."""
-    # Null pointer checks
-    if out_price == None or out_delta == None or out_gamma == None:
-        return 1
-
     var engine = PricingEngine()
-    _seed_grid(engine, param_hash)
+    _seed_grid(engine, param_hash, 0.5)
 
     var req = PricingRequest(
         S=S,
@@ -87,31 +98,25 @@ def fpe_price_batch(
     out_prices: UnsafePointer[Float64, MutAnyOrigin],
     out_deltas: UnsafePointer[Float64, MutAnyOrigin],
     out_gammas: UnsafePointer[Float64, MutAnyOrigin],
-) -> Int32:
+) raises -> Int32:
     """Price batch of options. Returns 0 on success, 1 on error."""
-    # Null pointer checks
-    if S == None or K == None or T == None or barrier == None or payoff_type == None:
-        return 1
-    if out_prices == None or out_deltas == None or out_gammas == None:
-        return 1
     if count <= 0:
         return 1
 
     var engine = PricingEngine()
-    _seed_grid(engine, param_hash)
-    
+    _seed_grid(engine, param_hash, 0.5)
+
     var reqs: List[PricingRequest] = []
     for i in range(Int(count)):
         reqs.append(PricingRequest(
             S=S[i], K=K[i], V=0.1, barrier=barrier[i], payoff_type=Int(payoff_type[i]), param_hash=param_hash
         ))
-    
+
     var results = engine.price[1](reqs)
-    
+
     for i in range(Int(count)):
         if i < len(results):
             out_prices[i] = results[i].price
             out_deltas[i] = results[i].delta
             out_gammas[i] = results[i].gamma
     return 0
-

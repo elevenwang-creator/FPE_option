@@ -12,8 +12,14 @@ from std.sys import has_accelerator
 
 from server.pdf_cache import PDFGrid
 from server.interpolator import Interpolator
-from server.payoffs import BarrierDownAndIn, BarrierUpAndOut, EuropeanCall, EuropeanPut
+from server.payoffs import (
+    BarrierDownAndIn,
+    BarrierUpAndOut,
+    EuropeanCall,
+    EuropeanPut,
+)
 from server.greeks import Greeks
+from server.option_types import PricingResult
 from std.sys import simd_width_of
 from std.algorithm import parallelize
 
@@ -40,15 +46,6 @@ struct PricingRequest(Copyable, Movable):
 
 
 @fieldwise_init
-struct PricingResult(Copyable, Movable, Writable):
-    var price: Float64
-    var delta: Float64
-    var gamma: Float64
-    var vega: Float64
-    var success: Bool
-
-
-@fieldwise_init
 struct Pricer[B: Int]:
     """Unified pricer. B=1 -> CPU path, B>1 -> batch path with fallback.
 
@@ -59,7 +56,9 @@ struct Pricer[B: Int]:
     var interpolator: Interpolator
     var greeks_computer: Greeks[Self.B]
 
-    def price(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
+    def price(
+        self, grid: PDFGrid, requests: List[PricingRequest]
+    ) -> List[PricingResult]:
         """Price B options using pre-computed PDF grid."""
 
         comptime if Self.B == 1:
@@ -70,49 +69,93 @@ struct Pricer[B: Int]:
             else:
                 return self._price_cpu_parallel(grid, requests)
 
-    def _price_single(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
-        """CPU path: pre-compute weights once, then integrate for each option."""
+    def _price_single(
+        self, grid: PDFGrid, requests: List[PricingRequest]
+    ) -> List[PricingResult]:
+        """CPU path: pre-compute weights once, then integrate for each option.
+        """
 
         var ds_weights = self._compute_trap_weights(grid.s_points)
         var dv_weights = self._compute_trap_weights(grid.v_points)
+        if len(grid.ds_weights) > 0:
+            ds_weights = grid.ds_weights.copy()
+        if len(grid.dv_weights) > 0:
+            dv_weights = grid.dv_weights.copy()
 
         var results: List[PricingResult] = []
         for req in requests:
             if not req.is_valid():
-                results.append(PricingResult(
-                    price=0.0, delta=0.0, gamma=0.0, vega=0.0, success=False,
-                ))
+                results.append(
+                    PricingResult(
+                        price=0.0,
+                        delta=0.0,
+                        gamma=0.0,
+                        vega=0.0,
+                        success=False,
+                    )
+                )
                 continue
-            var price = self._integrate_payoff_fast(grid, req, ds_weights, dv_weights)
+            var price = self._integrate_payoff_fast(
+                grid, req, ds_weights, dv_weights
+            )
             var payoff = self._get_payoff(req)
             var delta = self.greeks_computer.compute_delta(
-                grid, self.interpolator,
-                req.S, req.V, req.K, req.barrier, payoff,
+                grid,
+                self.interpolator,
+                req.S,
+                req.V,
+                req.K,
+                req.barrier,
+                payoff,
             )
             var gamma = self.greeks_computer.compute_gamma(
-                grid, self.interpolator,
-                req.S, req.V, req.K, req.barrier, payoff,
+                grid,
+                self.interpolator,
+                req.S,
+                req.V,
+                req.K,
+                req.barrier,
+                payoff,
             )
             var vega = self.greeks_computer.compute_vega(
-                grid, self.interpolator,
-                req.S, req.V, req.K, req.barrier, payoff,
+                grid,
+                self.interpolator,
+                req.S,
+                req.V,
+                req.K,
+                req.barrier,
+                payoff,
             )
-            results.append(PricingResult(
-                price=price, delta=delta, gamma=gamma, vega=vega, success=True,
-            ))
+            results.append(
+                PricingResult(
+                    price=price,
+                    delta=delta,
+                    gamma=gamma,
+                    vega=vega,
+                    success=True,
+                )
+            )
         return results^
 
-    def _price_cpu_parallel(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
+    def _price_cpu_parallel(
+        self, grid: PDFGrid, requests: List[PricingRequest]
+    ) -> List[PricingResult]:
         """Batch CPU path: parallelize across options."""
         var n = len(requests)
         var results: List[PricingResult] = []
         for _ in range(n):
-            results.append(PricingResult(
-                price=0.0, delta=0.0, gamma=0.0, vega=0.0, success=False
-            ))
+            results.append(
+                PricingResult(
+                    price=0.0, delta=0.0, gamma=0.0, vega=0.0, success=False
+                )
+            )
 
         var ds_weights = self._compute_trap_weights(grid.s_points)
         var dv_weights = self._compute_trap_weights(grid.v_points)
+        if len(grid.ds_weights) > 0:
+            ds_weights = grid.ds_weights.copy()
+        if len(grid.dv_weights) > 0:
+            dv_weights = grid.dv_weights.copy()
 
         @parameter
         def worker(i: Int):
@@ -121,16 +164,31 @@ struct Pricer[B: Int]:
                 grid, requests[i], ds_weights, dv_weights
             )
             var delta = self.greeks_computer.compute_delta(
-                grid, self.interpolator,
-                requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                grid,
+                self.interpolator,
+                requests[i].S,
+                requests[i].V,
+                requests[i].K,
+                requests[i].barrier,
+                payoff,
             )
             var gamma = self.greeks_computer.compute_gamma(
-                grid, self.interpolator,
-                requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                grid,
+                self.interpolator,
+                requests[i].S,
+                requests[i].V,
+                requests[i].K,
+                requests[i].barrier,
+                payoff,
             )
             var vega = self.greeks_computer.compute_vega(
-                grid, self.interpolator,
-                requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                grid,
+                self.interpolator,
+                requests[i].S,
+                requests[i].V,
+                requests[i].K,
+                requests[i].barrier,
+                payoff,
             )
             results[i] = PricingResult(
                 price=price, delta=delta, gamma=gamma, vega=vega, success=True
@@ -139,7 +197,9 @@ struct Pricer[B: Int]:
         parallelize[worker](n)
         return results^
 
-    def _price_gpu_batch(self, grid: PDFGrid, requests: List[PricingRequest]) -> List[PricingResult]:
+    def _price_gpu_batch(
+        self, grid: PDFGrid, requests: List[PricingRequest]
+    ) -> List[PricingResult]:
         """GPU batch pricing via engines.fpe.gpu logic chain.
 
         Routes through engines.fpe.gpu.executor.GPUFullChainExecutor
@@ -175,30 +235,57 @@ struct Pricer[B: Int]:
                     n_s=len(grid.s_points), n_v=len(grid.v_points)
                 )
                 var prices = executor.price_options(
-                    grid.pdf, grid.s_points, grid.v_points,
-                    ds_weights, dv_weights,
-                    strikes^, barriers^,
-                    len(grid.s_points), len(grid.v_points), n_options,
+                    grid.pdf,
+                    grid.s_points,
+                    grid.v_points,
+                    ds_weights,
+                    dv_weights,
+                    strikes^,
+                    barriers^,
+                    len(grid.s_points),
+                    len(grid.v_points),
+                    n_options,
                 )
 
                 var results: List[PricingResult] = []
                 for i in range(n_options):
                     var payoff = self._get_payoff(requests[i])
                     var delta = self.greeks_computer.compute_delta(
-                        grid, self.interpolator,
-                        requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        grid,
+                        self.interpolator,
+                        requests[i].S,
+                        requests[i].V,
+                        requests[i].K,
+                        requests[i].barrier,
+                        payoff,
                     )
                     var gamma = self.greeks_computer.compute_gamma(
-                        grid, self.interpolator,
-                        requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        grid,
+                        self.interpolator,
+                        requests[i].S,
+                        requests[i].V,
+                        requests[i].K,
+                        requests[i].barrier,
+                        payoff,
                     )
                     var vega = self.greeks_computer.compute_vega(
-                        grid, self.interpolator,
-                        requests[i].S, requests[i].V, requests[i].K, requests[i].barrier, payoff,
+                        grid,
+                        self.interpolator,
+                        requests[i].S,
+                        requests[i].V,
+                        requests[i].K,
+                        requests[i].barrier,
+                        payoff,
                     )
-                    results.append(PricingResult(
-                        price=prices[i], delta=delta, gamma=gamma, vega=vega, success=True,
-                    ))
+                    results.append(
+                        PricingResult(
+                            price=prices[i],
+                            delta=delta,
+                            gamma=gamma,
+                            vega=vega,
+                            success=True,
+                        )
+                    )
                 return results^
             except:
                 pass
@@ -260,6 +347,10 @@ struct Pricer[B: Int]:
         """
         var ds_weights = self._compute_trap_weights(grid.s_points)
         var dv_weights = self._compute_trap_weights(grid.v_points)
+        if len(grid.ds_weights) > 0:
+            ds_weights = grid.ds_weights.copy()
+        if len(grid.dv_weights) > 0:
+            dv_weights = grid.dv_weights.copy()
         return self._integrate_payoff_fast(grid, req, ds_weights, dv_weights)
 
     def _integrate_payoff_fast(

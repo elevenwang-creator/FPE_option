@@ -49,7 +49,12 @@ struct Greeks[B: Int](Copyable, Movable):
                 var s_val = grid.s_points[i]
                 var v_val = grid.v_points[j]
                 var payoff_val = payoff.evaluate(s_val, K, barrier)
-                price += grid.pdf[i][j] * payoff_val * grid.ds_weights[i] * grid.dv_weights[j]
+                price += (
+                    grid.pdf[i][j]
+                    * payoff_val
+                    * grid.ds_weights[i]
+                    * grid.dv_weights[j]
+                )
         return price
 
     def compute_delta(
@@ -66,8 +71,12 @@ struct Greeks[B: Int](Copyable, Movable):
 
         Central difference for 2nd order accuracy.
         """
-        var plus = self._price_at(grid, interp, S + self.h_s, V, K, barrier, payoff)
-        var minus = self._price_at(grid, interp, S - self.h_s, V, K, barrier, payoff)
+        var plus = self._price_at(
+            grid, interp, S + self.h_s, V, K, barrier, payoff
+        )
+        var minus = self._price_at(
+            grid, interp, S - self.h_s, V, K, barrier, payoff
+        )
         return (plus - minus) / (2.0 * self.h_s)
 
     def compute_gamma(
@@ -84,9 +93,13 @@ struct Greeks[B: Int](Copyable, Movable):
 
         Central second-order finite difference.
         """
-        var plus = self._price_at(grid, interp, S + self.h_s, V, K, barrier, payoff)
+        var plus = self._price_at(
+            grid, interp, S + self.h_s, V, K, barrier, payoff
+        )
         var center = self._price_at(grid, interp, S, V, K, barrier, payoff)
-        var minus = self._price_at(grid, interp, S - self.h_s, V, K, barrier, payoff)
+        var minus = self._price_at(
+            grid, interp, S - self.h_s, V, K, barrier, payoff
+        )
         return (plus - 2.0 * center + minus) / (self.h_s * self.h_s)
 
     def compute_vega(

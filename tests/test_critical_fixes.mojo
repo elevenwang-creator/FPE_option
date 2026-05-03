@@ -27,7 +27,8 @@ def test_gpu_executor_batches_properly() raises:
 def test_trainer_uses_correct_net_dimensions() raises:
     """Trainer should create perturbed networks with same dimensions as input net."""
     from engines.nais.nais_net import NaisNet
-    from engines.nais.trainer import _flatten_net_params, _unflatten_net_params
+    from engines.nais.utils import _flatten_net_params
+    from engines.nais.trainer import _unflatten_net_params
 
     # Create net with non-default dimensions (hidden=12, not 6)
     var net = NaisNet(in_dim=3, hidden=12, phi_dim=4)
