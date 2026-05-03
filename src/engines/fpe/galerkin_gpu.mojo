@@ -2,7 +2,14 @@
 
 from std.gpu import block_idx, thread_idx, block_dim
 from layout import Layout, LayoutTensor
-from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N, CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N
+from gpu_utils.dtype import (
+    METAL_DTYPE,
+    METAL_VEC_LAYOUT,
+    METAL_MAX_N,
+    CUDA_DTYPE,
+    CUDA_VEC_LAYOUT,
+    CUDA_MAX_N,
+)
 from std.sys import has_apple_gpu_accelerator
 
 comptime GPU_GAL_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
@@ -27,19 +34,23 @@ def spmatrix_gpu_kernel(
     var base_phi = b * GPU_GAL_MAX_N * GPU_GAL_MAX_N
     var base_w = b * n_points
 
-    var r = Float64(rebind[GPU_GAL_SCALAR](params[b * 12 + 4]))
-    var sigma = Float64(rebind[GPU_GAL_SCALAR](params[b * 12 + 2]))
-    var rho = Float64(rebind[GPU_GAL_SCALAR](params[b * 12 + 3]))
+    var r = rebind[GPU_GAL_SCALAR](params[b * 12 + 4])
+    var sigma = rebind[GPU_GAL_SCALAR](params[b * 12 + 2])
+    var rho = rebind[GPU_GAL_SCALAR](params[b * 12 + 3])
 
     var idx = Int(tid)
     while idx < n_basis * n_basis:
         var row = idx / n_basis
         var col = idx % n_basis
-        var sum: Float64 = 0.0
+        var sum: GPU_GAL_SCALAR = 0.0
         for k in range(n_points):
-            var w_val = Float64(rebind[GPU_GAL_SCALAR](weights_in[base_w + k]))
-            var phi_ki = Float64(rebind[GPU_GAL_SCALAR](phi_in[base_phi + k * GPU_GAL_MAX_N + row]))
-            var phi_kj = Float64(rebind[GPU_GAL_SCALAR](phi_in[base_phi + k * GPU_GAL_MAX_N + col]))
+            var w_val = rebind[GPU_GAL_SCALAR](weights_in[base_w + k])
+            var phi_ki = rebind[GPU_GAL_SCALAR](
+                phi_in[base_phi + k * GPU_GAL_MAX_N + row]
+            )
+            var phi_kj = rebind[GPU_GAL_SCALAR](
+                phi_in[base_phi + k * GPU_GAL_MAX_N + col]
+            )
             sum += w_val * phi_ki * phi_kj
-        spmatrix_out[base_mat + idx] = GPU_GAL_SCALAR(sum)
+        spmatrix_out[base_mat + idx] = rebind[spmatrix_out.element_type](sum)
         idx += Int(threads)

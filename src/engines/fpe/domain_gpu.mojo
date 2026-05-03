@@ -2,7 +2,14 @@
 
 from std.gpu import block_idx, thread_idx, block_dim
 from layout import Layout, LayoutTensor
-from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, METAL_MAX_N, CUDA_DTYPE, CUDA_VEC_LAYOUT, CUDA_MAX_N
+from gpu_utils.dtype import (
+    METAL_DTYPE,
+    METAL_VEC_LAYOUT,
+    METAL_MAX_N,
+    CUDA_DTYPE,
+    CUDA_VEC_LAYOUT,
+    CUDA_MAX_N,
+)
 from std.sys import has_apple_gpu_accelerator
 from std.math import exp
 

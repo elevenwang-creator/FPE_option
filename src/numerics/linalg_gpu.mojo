@@ -2,7 +2,12 @@
 
 from std.gpu import block_idx, thread_idx, block_dim
 from layout import Layout, LayoutTensor
-from gpu_utils.dtype import METAL_DTYPE, METAL_VEC_LAYOUT, CUDA_DTYPE, CUDA_VEC_LAYOUT
+from gpu_utils.dtype import (
+    METAL_DTYPE,
+    METAL_VEC_LAYOUT,
+    CUDA_DTYPE,
+    CUDA_VEC_LAYOUT,
+)
 from std.sys import has_apple_gpu_accelerator
 
 comptime GPU_LA_DTYPE = METAL_DTYPE if has_apple_gpu_accelerator() else CUDA_DTYPE
@@ -21,16 +26,15 @@ def lu_decompose_gpu_kernel(
     var base = b * n * n
 
     if Int(tid) == 0:
-        # Copy A to lu_out with partial pivoting
         for i in range(n):
             for j in range(n):
                 lu_out[base + i * n + j] = A_in[base + i * n + j]
 
         for k in range(n):
             var pivot = k
-            var max_val: Float64 = 0.0
+            var max_val: GPU_LA_SCALAR = 0.0
             for i in range(k, n):
-                var val = Float64(rebind[GPU_LA_SCALAR](lu_out[base + i * n + k]))
+                var val = rebind[GPU_LA_SCALAR](lu_out[base + i * n + k])
                 if val < 0.0:
                     val = 0.0 - val
                 if val > max_val:
@@ -43,17 +47,21 @@ def lu_decompose_gpu_kernel(
                     lu_out[base + pivot * n + j] = tmp
 
         for k in range(n):
-            var diag_f: Float64 = Float64(rebind[GPU_LA_SCALAR](lu_out[base + k * n + k]))
+            var diag_f = rebind[GPU_LA_SCALAR](lu_out[base + k * n + k])
             if diag_f == 0.0:
-                lu_out[base + k * n + k] = GPU_LA_SCALAR(1.0)
+                lu_out[base + k * n + k] = rebind[lu_out.element_type](1.0)
                 diag_f = 1.0
             for i in range(k + 1, n):
-                var factor = Float64(rebind[GPU_LA_SCALAR](lu_out[base + i * n + k])) / diag_f
-                lu_out[base + i * n + k] = GPU_LA_SCALAR(factor)
+                var factor = (
+                    rebind[GPU_LA_SCALAR](lu_out[base + i * n + k]) / diag_f
+                )
+                lu_out[base + i * n + k] = rebind[lu_out.element_type](factor)
                 for j in range(k + 1, n):
-                    var val = Float64(rebind[GPU_LA_SCALAR](lu_out[base + i * n + j]))
-                    val = val - factor * Float64(rebind[GPU_LA_SCALAR](lu_out[base + k * n + j]))
-                    lu_out[base + i * n + j] = GPU_LA_SCALAR(val)
+                    var val = rebind[GPU_LA_SCALAR](lu_out[base + i * n + j])
+                    val = val - factor * rebind[GPU_LA_SCALAR](
+                        lu_out[base + k * n + j]
+                    )
+                    lu_out[base + i * n + j] = rebind[lu_out.element_type](val)
 
     var i = Int(tid)
     while i < n * n:
@@ -76,14 +84,18 @@ def lu_solve_gpu_kernel(
             x_out[base_vec + i] = b_in[base_vec + i]
         for i in range(n):
             for j in range(i):
-                var val = Float64(rebind[GPU_LA_SCALAR](x_out[base_vec + i]))
-                val = val - Float64(rebind[GPU_LA_SCALAR](lu_in[base_mat + i * n + j])) * Float64(rebind[GPU_LA_SCALAR](x_out[base_vec + j]))
-                x_out[base_vec + i] = GPU_LA_SCALAR(val)
+                var val = rebind[GPU_LA_SCALAR](x_out[base_vec + i])
+                val = val - rebind[GPU_LA_SCALAR](
+                    lu_in[base_mat + i * n + j]
+                ) * rebind[GPU_LA_SCALAR](x_out[base_vec + j])
+                x_out[base_vec + i] = rebind[x_out.element_type](val)
         for rev in range(n):
             var i = n - 1 - rev
-            var s = Float64(rebind[GPU_LA_SCALAR](x_out[base_vec + i]))
+            var s = rebind[GPU_LA_SCALAR](x_out[base_vec + i])
             for j in range(i + 1, n):
-                s = s - Float64(rebind[GPU_LA_SCALAR](lu_in[base_mat + i * n + j])) * Float64(rebind[GPU_LA_SCALAR](x_out[base_vec + j]))
-            var diag = Float64(rebind[GPU_LA_SCALAR](lu_in[base_mat + i * n + i]))
+                s = s - rebind[GPU_LA_SCALAR](
+                    lu_in[base_mat + i * n + j]
+                ) * rebind[GPU_LA_SCALAR](x_out[base_vec + j])
+            var diag = rebind[GPU_LA_SCALAR](lu_in[base_mat + i * n + i])
             if diag != 0.0:
-                x_out[base_vec + i] = GPU_LA_SCALAR(s / diag)
+                x_out[base_vec + i] = rebind[x_out.element_type](s / diag)
