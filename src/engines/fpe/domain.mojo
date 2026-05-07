@@ -6,7 +6,7 @@ from numerics.bspline.tensor_product import TensorProductBasis
 from numerics.utils import linspace
 from sparse.csr import CSRMatrix
 from sparse.diag import DiagMatrix
-from sparse.ops import kron
+from sparse.kron import kron
 
 
 def _sort_unique(x: List[Float64]) -> List[Float64]:
@@ -34,11 +34,8 @@ def _normalize_list(x: List[Float64]) -> List[Float64]:
 
 
 def _grid_create(
-    mean: Float64,
-    std_dev: Float64,
-    bound: Tuple[Float64, Float64],
-    num_insert: Int = 251,
-    is_v: Bool = False,
+    mean: Float64, std_dev: Float64, bound: Tuple[Float64, Float64],
+    num_insert: Int = 251, is_v: Bool = False,
 ) -> List[Float64]:
     var lb = bound[0]
     var ub = bound[1]
@@ -138,6 +135,30 @@ def _compute_quad_weights(grid: List[Float64], num_gauss: Int) -> List[Float64]:
     return weights^
 
 
+struct FPECachedBasis[degree_s: Int, degree_v: Int](Movable):
+    var basis: TensorProductBasis[Self.degree_s, Self.degree_v]
+    var weights: CSRMatrix
+    var two_basis: CSRMatrix
+    var s_partial: CSRMatrix
+    var v_partial: CSRMatrix
+    var two_basis_T: CSRMatrix
+    var n_s: Int
+    var n_v: Int
+
+    def __init__(
+        out self,
+        var domain: FPEDomain[Self.degree_s, Self.degree_v],
+    ):
+        self.basis = domain.build_basis()
+        self.weights = domain.integ_weights()
+        self.two_basis = self.basis.eval_tensor(domain.s_points, domain.v_points)
+        self.s_partial = self.basis.partial_s(domain.s_points, domain.v_points)
+        self.v_partial = self.basis.partial_v(domain.s_points, domain.v_points)
+        self.two_basis_T = self.two_basis.transpose()
+        self.n_s = len(domain.s_points)
+        self.n_v = len(domain.v_points)
+
+
 struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
     var s_knots: List[Float64]
     var v_knots: List[Float64]
@@ -168,7 +189,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
             n=n_s,
             degree=Self.degree_s,
             method="non-uniform",
-            center=0.1,
+            center=0.2,
             boundary=(self.s_min, self.s_max),
             mean=params.S0,
             std=0.1,
@@ -179,7 +200,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
             n=n_v,
             degree=Self.degree_v,
             method="non-uniform",
-            center=0.1,
+            center=0.2,
             boundary=(self.v_min, self.v_max),
             mean=params.V0,
             std=0.001,
@@ -194,7 +215,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         )
 
         var grid_s = _normalize_list(s_grid_phys)
-        var grid_v = _normalize_list(v_grid_phys)
+        var grid_v = v_grid_phys.copy()
 
         var num_gauss = (Self.degree_s + Self.degree_v + 1 + 1) // 2
 
@@ -215,9 +236,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
             )
         self.v_points_phys = List[Float64]()
         for i in range(len(self.v_points)):
-            self.v_points_phys.append(
-                self.v_min + self.v_points[i] * (self.v_max - self.v_min)
-            )
+            self.v_points_phys.append(self.v_points[i])
 
     def jacobian_factor(self) -> Float64:
         return self.s_max - self.s_min
@@ -239,3 +258,6 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         return TensorProductBasis[Self.degree_s, Self.degree_v](
             basis_s=r_s^, basis_v=r_v^
         )
+
+    def cached_basis(self) -> FPECachedBasis[Self.degree_s, Self.degree_v]:
+        return FPECachedBasis[Self.degree_s, Self.degree_v](self)
