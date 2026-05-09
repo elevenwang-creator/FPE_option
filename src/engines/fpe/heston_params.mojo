@@ -1,5 +1,8 @@
+from std.math import exp, sqrt
+
+
 @fieldwise_init
-struct HestonParams(Copyable, Movable, Writable, Hashable):
+struct HestonParams(Copyable, Hashable, Movable, Writable):
     var kappa: Float64
     var theta: Float64
     var sigma: Float64
@@ -51,9 +54,19 @@ struct HestonParams(Copyable, Movable, Writable, Hashable):
         if self.V_max <= self.V_min:
             raise Error("V_max must be > V_min")
 
+    def recommended_S_min(self) -> Float64:
+        var vol_scale = sqrt(self.V0) * sqrt(self.T)
+        return self.S0 * exp(-6.0 * vol_scale)
+
+    def recommended_S_max(self) -> Float64:
+        var vol_scale = sqrt(self.V0) * sqrt(self.T)
+        return self.S0 * exp(6.0 * vol_scale)
+
 
 struct HestonParamsBatch[B: Int](Copyable, Movable):
-    """Packed Structural Array (SoA) layout for Heston Parameters using InlineArray limiters."""
+    """Packed Structural Array (SoA) layout for Heston Parameters using InlineArray limiters.
+    """
+
     var kappa: InlineArray[Float64, Self.B]
     var theta: InlineArray[Float64, Self.B]
     var sigma: InlineArray[Float64, Self.B]
@@ -82,7 +95,8 @@ struct HestonParamsBatch[B: Int](Copyable, Movable):
         self.V_max = InlineArray[Float64, Self.B](fill=0.0)
 
         for i in range(len(params)):
-            if i >= Self.B: break
+            if i >= Self.B:
+                break
             self.kappa[i] = params[i].kappa
             self.theta[i] = params[i].theta
             self.sigma[i] = params[i].sigma

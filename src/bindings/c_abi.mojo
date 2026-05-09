@@ -6,13 +6,27 @@ from server.pdf_cache import PDFGrid
 from server.pricing_engine import PricingEngine
 
 
-def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64) raises:
+def _seed_grid(
+    mut engine: PricingEngine, param_hash: UInt64, T: Float64
+) raises:
     var params = HestonParams(
-        kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.05, T=T,
-        S0=100.0, V0=0.1, S_min=50.0, S_max=150.0, V_min=0.0, V_max=1.0,
+        kappa=1.2,
+        theta=0.05,
+        sigma=0.35,
+        rho=-0.4,
+        r=0.05,
+        T=T,
+        S0=100.0,
+        V0=0.1,
+        S_min=0.0,
+        S_max=150.0,
+        V_min=0.0,
+        V_max=1.0,
     )
     var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1, first_step=0.01)
+    var solver = FPESolver[1](
+        rtol=1e-4, atol=1e-6, max_step=0.1, first_step=0.01
+    )
     var t_eval: List[Float64] = [0.0, T]
     var sol = solver.solve(domain, params, t_eval)
 
@@ -108,9 +122,16 @@ def fpe_price_batch(
 
     var reqs: List[PricingRequest] = []
     for i in range(Int(count)):
-        reqs.append(PricingRequest(
-            S=S[i], K=K[i], V=0.1, barrier=barrier[i], payoff_type=Int(payoff_type[i]), param_hash=param_hash
-        ))
+        reqs.append(
+            PricingRequest(
+                S=S[i],
+                K=K[i],
+                V=0.1,
+                barrier=barrier[i],
+                payoff_type=Int(payoff_type[i]),
+                param_hash=param_hash,
+            )
+        )
 
     var results = engine.price[1](reqs)
 

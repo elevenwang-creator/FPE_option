@@ -10,20 +10,32 @@ from server.pricer import PricingRequest
 from server.pricing_engine import PricingEngine
 
 
-def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64) raises:
+def _seed_grid(
+    mut engine: PricingEngine, param_hash: UInt64, T: Float64
+) raises:
     """Solve FPE and store real PDF grid in the cache.
-    
+
     This replaces the placeholder uniform PDF with the actual FPE solution.
     """
     var params = HestonParams(
-        kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.05, T=T,
-        S0=100.0, V0=0.1, S_min=50.0, S_max=150.0, V_min=0.0, V_max=1.0,
+        kappa=1.2,
+        theta=0.05,
+        sigma=0.35,
+        rho=-0.4,
+        r=0.05,
+        T=T,
+        S0=100.0,
+        V0=0.1,
+        S_min=0.0,
+        S_max=150.0,
+        V_min=0.0,
+        V_max=1.0,
     )
     var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
     var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1)
     var t_eval: List[Float64] = [0.0, T]
     var sol = solver.solve(domain, params, t_eval)
-    
+
     # Build real PDF grid from FPE solution
     var n_s = len(domain.s_points)
     var n_v = len(domain.v_points)
@@ -33,10 +45,17 @@ def _seed_grid(mut engine: PricingEngine, param_hash: UInt64, T: Float64) raises
         for j in range(n_v):
             row.append(sol[len(sol) - 1][i * n_v + j])
         pdf.append(row^)
-    
+
     var ds: List[Float64] = []
     var dv: List[Float64] = []
-    var grid = PDFGrid(pdf=pdf^, s_points=domain.s_points.copy(), v_points=domain.v_points.copy(), T=T, ds_weights=ds^, dv_weights=dv^)
+    var grid = PDFGrid(
+        pdf=pdf^,
+        s_points=domain.s_points.copy(),
+        v_points=domain.v_points.copy(),
+        T=T,
+        ds_weights=ds^,
+        dv_weights=dv^,
+    )
     grid.precompute_weights()
     engine.store_pdf(param_hash, grid^)
 
@@ -97,7 +116,7 @@ def py_solve_fpe(params_obj: PythonObject) raises -> PythonObject:
         T=Float64(py=T),
         S0=Float64(py=params_obj.get("S0", PythonObject(100.0))),
         V0=Float64(py=params_obj.get("V0", PythonObject(0.1))),
-        S_min=50.0,
+        S_min=0.0,
         S_max=150.0,
         V_min=0.0,
         V_max=1.0,
@@ -121,7 +140,14 @@ def py_solve_fpe(params_obj: PythonObject) raises -> PythonObject:
         pdf.append(row^)
     var ds: List[Float64] = []
     var dv: List[Float64] = []
-    var grid = PDFGrid(pdf=pdf^, s_points=domain.s_points.copy(), v_points=domain.v_points.copy(), T=Float64(py=T), ds_weights=ds^, dv_weights=dv^)
+    var grid = PDFGrid(
+        pdf=pdf^,
+        s_points=domain.s_points.copy(),
+        v_points=domain.v_points.copy(),
+        T=Float64(py=T),
+        ds_weights=ds^,
+        dv_weights=dv^,
+    )
     grid.precompute_weights()
     engine.store_pdf(h, grid^)
 
