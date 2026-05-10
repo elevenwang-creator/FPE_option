@@ -21,7 +21,6 @@ from server.payoffs import (
 from server.greeks import Greeks
 from server.option_types import PricingResult
 from std.sys import simd_width_of
-from std.algorithm import parallelize
 
 
 @fieldwise_init
@@ -194,7 +193,8 @@ struct Pricer[B: Int]:
                 price=price, delta=delta, gamma=gamma, vega=vega, success=True
             )
 
-        parallelize[worker](n)
+        for _i in range(n):
+            worker(_i)
         return results^
 
     def _price_gpu_batch(

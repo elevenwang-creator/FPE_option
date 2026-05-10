@@ -4,13 +4,14 @@ version = "0.1.0"
 description = "FPE Option Pricing Engine — Mojo + MAX AI Kernels"
 channels = [
     "https://conda.modular.com/max-nightly",
+    "https://repo.prefix.dev/modular-community",
     "conda-forge"
 ]
 platforms = ["osx-arm64", "linux-64"]
 
 [dependencies]
-max = "==26.3.0.dev2026040405"
-mojo = "==0.26.3.0.dev2026040405"
+max = ">=26.3"
+mojo = ">=1.0.0b2.dev2026050805,<2"
 matplotlib = ">=3.10.8,<4"
 scipy = ">=1.17.1,<2"
 numpy = ">=2.4.3,<3"

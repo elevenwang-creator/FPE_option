@@ -10,6 +10,7 @@ from std.sys import has_accelerator
 from gpu_utils.dtype import GPU_DTYPE, GPU_VEC_LAYOUT
 from std.math import ceildiv
 
+
 def nais_fbsde_loss_kernel(
     loss_out: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
     params_in: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
@@ -17,7 +18,7 @@ def nais_fbsde_loss_kernel(
     batch_size: Int,
 ):
     """Computes the FBSDE loss entirely on the GPU.
-    
+
     Architecture:
     grid_dim.x defines the batch size / number of paths.
     block_dim.x dictates thread count collaborating inside the batch operation.
@@ -29,6 +30,7 @@ def nais_fbsde_loss_kernel(
     # Collaborate via thread_idx.x
     if Int(thread_idx.x) == 0:
         loss_out[Int(b)] = rebind[loss_out.element_type](0.5)
+
 
 def nais_gradient_descent_kernel(
     params_out: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
@@ -44,37 +46,56 @@ def nais_gradient_descent_kernel(
     while i < n_params:
         var p = rebind[Scalar[GPU_DTYPE]](params_out[i])
         var l = rebind[Scalar[GPU_DTYPE]](loss_in[0])
-        params_out[i] = rebind[params_out.element_type](p - learning_rate * l * 0.01)
+        params_out[i] = rebind[params_out.element_type](
+            p - learning_rate * l * 0.01
+        )
         i += Int(threads)
+
 
 @fieldwise_init
 struct NAISGPUTrainExecutor:
     var learning_rate: Float64
     var n_iter: Int
     var n_params: Int
-    
+
     def execute_training_on_gpu(self) raises:
-        comptime assert has_accelerator(), "GPU is critically required for NAIS training!"
+        comptime assert (
+            has_accelerator()
+        ), "GPU is critically required for NAIS training!"
         var ctx = DeviceContext()
-        
+
         var bs = 256
         var batch_size = 64
-        
+
         var loss_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size)
         var params_buf = ctx.enqueue_create_buffer[GPU_DTYPE](self.n_params)
-        
+
         var loss_t = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](loss_buf)
         var params_t = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](params_buf)
         var lr_scalar = rebind[Scalar[GPU_DTYPE]](self.learning_rate)
 
         for _ in range(self.n_iter):
             # NAIS Loss is computed across `batch_size` paths. Thus grid_dim=batch_size.
-            ctx.enqueue_function[nais_fbsde_loss_kernel, nais_fbsde_loss_kernel](
-                loss_t, params_t, self.n_params, batch_size, grid_dim=batch_size, block_dim=bs
+            ctx.enqueue_function[
+                nais_fbsde_loss_kernel, nais_fbsde_loss_kernel
+            ](
+                loss_t,
+                params_t,
+                self.n_params,
+                batch_size,
+                grid_dim=batch_size,
+                block_dim=bs,
             )
             # Parameter update executes on a single block spanning all parameters. grid_dim=1.
-            ctx.enqueue_function[nais_gradient_descent_kernel, nais_gradient_descent_kernel](
-                params_t, loss_t, lr_scalar, self.n_params, grid_dim=1, block_dim=bs
+            ctx.enqueue_function[
+                nais_gradient_descent_kernel, nais_gradient_descent_kernel
+            ](
+                params_t,
+                loss_t,
+                lr_scalar,
+                self.n_params,
+                grid_dim=1,
+                block_dim=bs,
             )
 
         ctx.synchronize()

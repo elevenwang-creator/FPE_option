@@ -20,7 +20,7 @@ struct PDFGrid(Copyable, Movable):
                 self.ds_weights.append(1.0)
             else:
                 self.ds_weights.append(
-                    (self.s_points[i+1] - self.s_points[i-1]) * 0.5
+                    (self.s_points[i + 1] - self.s_points[i - 1]) * 0.5
                 )
         # dv
         for i in range(len(self.v_points)):
@@ -28,7 +28,7 @@ struct PDFGrid(Copyable, Movable):
                 self.dv_weights.append(1.0)
             else:
                 self.dv_weights.append(
-                    (self.v_points[i+1] - self.v_points[i-1]) * 0.5
+                    (self.v_points[i + 1] - self.v_points[i - 1]) * 0.5
                 )
 
     def to_python_object(self) raises -> PythonObject:
@@ -125,7 +125,8 @@ struct PDFCache:
         return param_hash in self.grids
 
     def save_to_disk(self, path: String) raises -> Bool:
-        """Serialize cached PDF grids to disk using Python json (safe, no code execution)."""
+        """Serialize cached PDF grids to disk using Python json (safe, no code execution).
+        """
         var json_mod = Python.import_module("json")
         var builtins = Python.import_module("builtins")
         var data = Python.dict()
@@ -143,7 +144,8 @@ struct PDFCache:
             return False
 
     def load_from_disk(mut self, path: String) raises -> Bool:
-        """Deserialize PDF grids from disk using Python json (safe, no code execution)."""
+        """Deserialize PDF grids from disk using Python json (safe, no code execution).
+        """
         var json_mod = Python.import_module("json")
         var builtins = Python.import_module("builtins")
         var filepath = path + "/fpe_pdf_cache.json"

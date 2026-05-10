@@ -1,10 +1,4 @@
-"""Compressed Sparse Column matrix with direct construction from CSR.
-
-Direct CSC construction using UnsafePointer workspace.
-No COO intermediate, no implicit copy errors.
-"""
-
-from sparse.csr import CSRMatrix
+"""Compressed Sparse Column matrix format."""
 
 
 struct CSCMatrix(Movable):
@@ -30,36 +24,3 @@ struct CSCMatrix(Movable):
 
     def nnz(self) -> Int:
         return self._nnz
-
-
-def csr_to_csc(A: CSRMatrix) -> CSCMatrix:
-    var nnz_val = A.nnz()
-    if nnz_val == 0:
-        return CSCMatrix(A.nrows, A.ncols)
-
-    var col_count = alloc[Int](A.ncols)
-    for j in range(A.ncols):
-        col_count[j] = 0
-    for p in range(nnz_val):
-        col_count[A.indices[p]] += 1
-
-    var result = CSCMatrix(A.nrows, A.ncols, nnz_val)
-    result.colptr[0] = 0
-    for j in range(A.ncols):
-        result.colptr[j + 1] = result.colptr[j] + col_count[j]
-
-    var pos = alloc[Int](A.ncols)
-    for j in range(A.ncols):
-        pos[j] = result.colptr[j]
-
-    for i in range(A.nrows):
-        for p in range(A.indptr[i], A.indptr[i + 1]):
-            var j = A.indices[p]
-            var dest = pos[j]
-            result.indices[dest] = i
-            result.data[dest] = A.data[p]
-            pos[j] = dest + 1
-
-    col_count.free()
-    pos.free()
-    return result^

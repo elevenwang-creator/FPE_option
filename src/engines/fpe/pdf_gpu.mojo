@@ -31,7 +31,9 @@ def integrate_gpu_kernel(
     while i < n_points:
         var sum: Float64 = 0.0
         for j in range(n_basis):
-            var phi_val = Float64(rebind[GPU_PDF_SCALAR](phi_in[base_phi + i * GPU_PDF_MAX_N + j]))
+            var phi_val = Float64(
+                rebind[GPU_PDF_SCALAR](phi_in[base_phi + i * GPU_PDF_MAX_N + j])
+            )
             var q_val = Float64(rebind[GPU_PDF_SCALAR](q_in[base_q + j]))
             sum += phi_val * q_val
         pdf_out[base_pdf + i] = GPU_PDF_SCALAR(sum)
@@ -71,7 +73,9 @@ def price_integration_kernel(
                 payoff = 0.0
             if payoff > 0.0:
                 for j in range(n_v):
-                    var pdf_val = Float64(rebind[GPU_PDF_SCALAR](pdf[i * GPU_PDF_MAX_N + j]))
+                    var pdf_val = Float64(
+                        rebind[GPU_PDF_SCALAR](pdf[i * GPU_PDF_MAX_N + j])
+                    )
                     var dv_w = Float64(rebind[GPU_PDF_SCALAR](dv_weights[j]))
                     price = price + payoff * pdf_val * ds_w * dv_w
         prices_out[Int(b)] = GPU_PDF_SCALAR(price)

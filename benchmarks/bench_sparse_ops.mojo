@@ -6,7 +6,7 @@ from std.math import sin
 from std.python import Python
 
 
-def _make_sparse_matrix(n: Int, density: Float64) -> CSRMatrix[DType.float64]:
+def _make_sparse_matrix(n: Int, density: Float64) -> CSRMatrix:
     var dense: List[List[Float64]] = []
     for i in range(n):
         var row: List[Float64] = []
@@ -17,7 +17,7 @@ def _make_sparse_matrix(n: Int, density: Float64) -> CSRMatrix[DType.float64]:
             else:
                 row.append(0.0)
         dense.append(row^)
-    return CSRMatrix[DType.float64].from_dense(dense)
+    return CSRMatrix.from_dense(dense)
 
 
 def bench_csr_spmv() raises:
@@ -31,15 +31,15 @@ def bench_csr_spmv() raises:
     var start = time_mod.perf_counter()
     var iterations = 10000
     for _ in range(iterations):
-        A.spmv_into(x, y)
+        A.spmv(x, y)
     var end = time_mod.perf_counter()
     var elapsed = Float64(py=end) - Float64(py=start)
-    var per_op = elapsed / Float64(iterations) * 1e6  # microseconds
+    var per_op = elapsed / Float64(iterations) * 1e6
 
     print("CSR SpMV (100x100, 10% density)")
-    print("  Iterations:", iterations)
-    print("  Total time:", elapsed, "s")
-    print("  Per operation:", per_op, "μs")
+    print(" Iterations:", iterations)
+    print(" Total time:", elapsed, "s")
+    print(" Per operation:", per_op, "μs")
 
 
 def main() raises:

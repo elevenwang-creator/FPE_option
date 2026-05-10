@@ -16,7 +16,12 @@ Usage:
         pass
 """
 
-from std.sys import has_accelerator, has_apple_gpu_accelerator, has_nvidia_gpu_accelerator, has_amd_gpu_accelerator
+from std.sys import (
+    has_accelerator,
+    has_apple_gpu_accelerator,
+    has_nvidia_gpu_accelerator,
+    has_amd_gpu_accelerator,
+)
 
 
 def detect_gpu_backend() -> String:

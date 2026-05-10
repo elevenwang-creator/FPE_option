@@ -41,7 +41,8 @@ struct Interpolator(Copyable, Movable):
 
     @staticmethod
     def _find_interval(points: List[Float64], x: Float64) -> Int:
-        """Binary-style interval search. Returns i such that points[i] <= x < points[i+1]."""
+        """Binary-style interval search. Returns i such that points[i] <= x < points[i+1].
+        """
         var n = len(points)
         if n <= 1:
             return 0
@@ -56,7 +57,8 @@ struct Interpolator(Copyable, Movable):
         return n - 2
 
     def interpolate(self, grid: PDFGrid, s: Float64, v: Float64) -> Float64:
-        """Interpolate PDF at (s, v). Uses bicubic if grid is large enough, else bilinear."""
+        """Interpolate PDF at (s, v). Uses bicubic if grid is large enough, else bilinear.
+        """
         _ = self
         var n_s = len(grid.s_points)
         var n_v = len(grid.v_points)
@@ -66,7 +68,9 @@ struct Interpolator(Copyable, Movable):
             return self._interpolate_bicubic(grid, s, v)
         return self._interpolate_bilinear(grid, s, v)
 
-    def _interpolate_bilinear(self, grid: PDFGrid, s: Float64, v: Float64) -> Float64:
+    def _interpolate_bilinear(
+        self, grid: PDFGrid, s: Float64, v: Float64
+    ) -> Float64:
         """Bilinear interpolation — retained as fallback for small grids."""
         _ = self
         var i = Self._find_interval(grid.s_points, s)
@@ -105,7 +109,9 @@ struct Interpolator(Copyable, Movable):
             + ts * tv * f11
         )
 
-    def _interpolate_bicubic(self, grid: PDFGrid, s: Float64, v: Float64) -> Float64:
+    def _interpolate_bicubic(
+        self, grid: PDFGrid, s: Float64, v: Float64
+    ) -> Float64:
         """Bicubic Catmull-Rom interpolation — 3rd order accuracy.
 
         Uses a 4×4 neighborhood of grid points with Catmull-Rom weights.
@@ -122,9 +128,13 @@ struct Interpolator(Copyable, Movable):
         var ts = 0.0
         var tv = 0.0
         if grid.s_points[i + 1] > grid.s_points[i]:
-            ts = (s - grid.s_points[i]) / (grid.s_points[i + 1] - grid.s_points[i])
+            ts = (s - grid.s_points[i]) / (
+                grid.s_points[i + 1] - grid.s_points[i]
+            )
         if grid.v_points[j + 1] > grid.v_points[j]:
-            tv = (v - grid.v_points[j]) / (grid.v_points[j + 1] - grid.v_points[j])
+            tv = (v - grid.v_points[j]) / (
+                grid.v_points[j + 1] - grid.v_points[j]
+            )
 
         if ts < 0.0:
             ts = 0.0
@@ -166,6 +176,7 @@ struct Interpolator(Copyable, Movable):
     ) -> List[Float64]:
         """SIMD-vectorized interpolation over the batch dimension."""
         from std.sys import simd_width_of
+
         comptime width = simd_width_of[DType.float64]()
         var n = len(s_vals)
         var result: List[Float64] = []
@@ -178,7 +189,9 @@ struct Interpolator(Copyable, Movable):
             # Then compute Catmull-Rom weights in SIMD
             # Perform width independent 4×4 interpolations
             for k in range(width):
-                result[i + k] = self.interpolate(grid, s_vals[i + k], v_vals[i + k])
+                result[i + k] = self.interpolate(
+                    grid, s_vals[i + k], v_vals[i + k]
+                )
             i += width
 
         while i < n:

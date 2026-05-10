@@ -40,11 +40,11 @@ def payoff_integration_kernel(
     var b = block_idx.x
     if Int(b) >= n_options:
         return
-        
+
     var K = rebind[Scalar[PRICER_DTYPE]](strikes[Int(b)])
     var barrier = rebind[Scalar[PRICER_DTYPE]](barriers[Int(b)])
 
-    # Isolate integration compute entirely to one thread proxy per block 
+    # Isolate integration compute entirely to one thread proxy per block
     # to avoid synchronization overhead lacking shared reductions.
     if Int(thread_idx.x) == 0:
         var price: Scalar[PRICER_DTYPE] = 0.0
@@ -52,18 +52,20 @@ def payoff_integration_kernel(
         while i < n_s:
             var S = rebind[Scalar[PRICER_DTYPE]](s_points[i])
             var ds_w = rebind[Scalar[PRICER_DTYPE]](ds_weights[i])
-            
+
             # European call payoff with barrier knock-out
             var payoff: Scalar[PRICER_DTYPE] = S - K
             if payoff < 0.0:
                 payoff = 0.0
             if S >= barrier:
                 payoff = 0.0
-            
+
             if payoff > 0.0:
                 var j = 0
                 while j < n_v:
-                    var pdf_val = rebind[Scalar[PRICER_DTYPE]](pdf[i * PRICER_MAX_OPTIONS + j])
+                    var pdf_val = rebind[Scalar[PRICER_DTYPE]](
+                        pdf[i * PRICER_MAX_OPTIONS + j]
+                    )
                     var dv_w = rebind[Scalar[PRICER_DTYPE]](dv_weights[j])
                     price = price + payoff * pdf_val * ds_w * dv_w
                     j += 1

@@ -25,17 +25,17 @@ Mojo GPU programming has **no CUDA syntax**. No `__global__`, `__device__`,
 | CUDA / What you'd guess                 | Mojo GPU                                                                             |
 |-----------------------------------------|--------------------------------------------------------------------------------------|
 | `__global__ void kernel(...)`           | Plain `def kernel(...)` — no decorator                                               |
-| `kernel<<<grid, block>>>(args)`         | `ctx.enqueue_function[kernel, kernel](args, grid_dim=..., block_dim=...)`            |
+| `kernel<<<grid, block>>>(args)`         | `ctx.enqueue_function[kernel](args, grid_dim=..., block_dim=...)`                    |
 | `cudaMalloc(&ptr, size)`                | `ctx.enqueue_create_buffer[dtype](count)`                                            |
 | `cudaMemcpy(dst, src, ...)`             | `ctx.enqueue_copy(dst_buf, src_buf)` or `ctx.enqueue_copy(dst_buf=..., src_buf=...)` |
 | `cudaDeviceSynchronize()`               | `ctx.synchronize()`                                                                  |
 | `__syncthreads()`                       | `barrier()` from `std.gpu` or `std.gpu.sync`                                         |
-| `__shared__ float s[N]`                 | `LayoutTensor[...address_space=AddressSpace.SHARED].stack_allocation()`              |
-| `threadIdx.x`                           | `thread_idx.x` (returns `UInt`)                                                      |
-| `blockIdx.x * blockDim.x + threadIdx.x` | `global_idx.x` (convenience)                                                         |
-| `__shfl_down_sync(mask, val, d)`        | `warp.sum(val)`, `warp.reduce[...]()`                                                |
+| `__shared__ float s[N]`                 | `stack_allocation[dtype, address_space=AddressSpace.SHARED](layout)`                 |
+| `threadIdx.x`                           | `thread_idx.x`                                                                       |
+| `blockIdx.x * blockDim.x + threadIdx.x` | `global_idx.x` (convenience, returns `Int`)                                          |
+| `__shfl_down_sync(mask, val, d)`        | `warp.shuffle_down(val, d)` / `warp.sum` / `warp.max` / `warp.min` / `warp.reduce`   |
 | `atomicAdd(&ptr, val)`                  | `Atomic.fetch_add(ptr, val)`                                                         |
-| Raw `float*` kernel args                | `LayoutTensor[dtype, layout, MutAnyOrigin]`                                          |
+| Raw `float*` kernel args                | `TileTensor[dtype, LayoutType, MutAnyOrigin]`                                        |
 | `cudaFree(ptr)`                         | Automatic — buffers freed when out of scope                                          |
 
 ## Imports
@@ -46,52 +46,72 @@ from std.gpu import global_idx                                    # simple index
 from std.gpu import block_dim, block_idx, thread_idx              # manual indexing
 from std.gpu import barrier, lane_id, WARP_SIZE                   # sync & warp info
 from std.gpu.sync import barrier                                  # also valid
-from std.gpu.primitives import warp                               # warp.sum, warp.reduce
+from std.gpu.primitives import warp                               # sum/max/min/broadcast/shuffle_*/reduce
 from std.gpu.memory import AddressSpace                           # for shared memory
 from std.gpu.memory import async_copy_wait_all                    # async copy sync
 from std.gpu.host import DeviceContext, DeviceBuffer              # host-side API
-from std.os.atomic import Atomic                                  # atomics
+from std.atomic import Atomic                                  # atomics
 
 # Layout system — NOT in std, separate package
-from layout import Layout, LayoutTensor
+from layout import TileTensor, TensorLayout, Idx, row_major, stack_allocation
 ```
 
 ## Kernel definition
 
 Kernels are **plain functions** — no decorator, no special return type.
-Parameters use `MutAnyOrigin`:
+Parameterize the layout type using the `TensorLayout` trait so the kernel
+works with any compatible layout. **`comptime assert tensor.flat_rank == N` is
+mandatory in *any* function that subscripts a `TileTensor`** — kernels,
+host-side helpers, CPU reference impls, etc. Without it, `tensor[r, c]` fails
+with `"invalid call to '__getitem__': lacking evidence to prove correctness"`.
+The assert unlocks N-D indexing:
 
 ```mojo
-def my_kernel(
-    input: LayoutTensor[DType.float32, layout, MutAnyOrigin],
-    output: LayoutTensor[DType.float32, layout, MutAnyOrigin],
+def my_kernel[
+    dtype: DType, LT: TensorLayout,
+](
+    input: TileTensor[dtype, LT, MutAnyOrigin],
+    output: TileTensor[dtype, LT, MutAnyOrigin],
     size: Int,                                    # scalar args are fine
 ):
+    comptime assert input.flat_rank == 1, "expected 1D tensor"
     var tid = global_idx.x
-    if tid < UInt(size):
+    if tid < size:
         output[tid] = input[tid] * 2
 ```
 
 - Kernel functions cannot raise.
-- Bounds check with `UInt(size)` since `global_idx.x` returns `UInt`.
-- Host-side helper functions accepting LayoutTensors use `...` for origin:
-  `LayoutTensor[dtype, layout, ...]`.
+- `global_idx.x` returns `Int` — compare directly with `size`.
+- For simple cases with a single fixed layout, `type_of(layout)` also works:
+  `TileTensor[dtype, type_of(layout), MutAnyOrigin]`.
 
-## LayoutTensor — the primary GPU data abstraction
+## TileTensor — the primary GPU data abstraction
 
 ### Layout creation
 
+`row_major` is a free function (not a method on `Layout`). Use compile-time
+integer parameters for static layouts:
+
 ```mojo
-comptime layout_1d = Layout.row_major(1024)               # 1D
-comptime layout_2d = Layout.row_major(64, 64)              # 2D (rows, cols)
-comptime layout_3d = Layout.row_major(10, 5, 3)            # 3D (e.g. H, W, C)
+comptime layout_1d = row_major[1024]()                     # 1D
+comptime layout_2d = row_major[64, 64]()                   # 2D (rows, cols)
+comptime layout_3d = row_major[10, 5, 3]()                 # 3D (e.g. H, W, C)
+```
+
+For runtime-known dimensions, use `Idx()`:
+
+```mojo
+var layout = row_major(Idx(M), Idx(N))                     # runtime dims
 ```
 
 ### Creating tensors from buffers
 
+TileTensor's constructor infers dtype and layout type — pass the buffer and
+layout:
+
 ```mojo
-var buf = ctx.enqueue_create_buffer[DType.float32](comptime (layout.size()))
-var tensor = LayoutTensor[DType.float32, layout](buf)     # wraps device buffer
+var buf = ctx.enqueue_create_buffer[DType.float32](1024)
+var tensor = TileTensor(buf, row_major[1024]())            # wraps device buffer
 ```
 
 ### Indexing
@@ -100,15 +120,24 @@ var tensor = LayoutTensor[DType.float32, layout](buf)     # wraps device buffer
 tensor[tid]                     # 1D
 tensor[row, col]                # 2D
 tensor[row, col, channel]       # 3D
-tensor.dim(0)                   # query dimension size
-tensor.shape[0]()               # also works
+tensor.dim[0]()                 # query dimension size (compile-time index)
+var K = Int(tensor.dim[1]())    # wrap with Int() for use in arithmetic
+```
+
+Derived tensors (`.tile(...)`, `.vectorize(...)`, `.distribute(...)`) produce a
+**new layout** whose rank is not inherited from the parent's assert. Re-assert
+on the derived value before indexing it:
+
+```mojo
+var vec = tensor.vectorize[1, 4]()
+comptime assert vec.flat_rank == 2          # required for vec[r, i]
 ```
 
 ### Tiling (extract sub-tiles from a tensor)
 
 ```mojo
 # Inside kernel — extract a block_size x block_size tile
-var tile = tensor.tile[block_size, block_size](Int(block_idx.y), Int(block_idx.x))
+var tile = tensor.tile[block_size, block_size](block_idx.y, block_idx.x)
 tile[thread_idx.y, thread_idx.x]   # access within tile
 ```
 
@@ -116,8 +145,8 @@ tile[thread_idx.y, thread_idx.x]   # access within tile
 
 ```mojo
 # Vectorize along inner dimension, then distribute across threads
-comptime thread_layout = Layout.row_major(WARP_SIZE // simd_width, simd_width)
-var fragment = tensor.vectorize[1, simd_width]().distribute[thread_layout](lane_id())
+comptime thread_layout = row_major[WARP_SIZE // simd_width, simd_width]()
+var fragment = tensor.vectorize[1, simd_width]().distribute[thread_layout=thread_layout](lane_id())
 fragment.copy_from_async(source_fragment)    # async copy
 fragment.copy_from(source_fragment)          # sync copy
 ```
@@ -139,7 +168,7 @@ products from different-layout tensors.
 ```mojo
 # WRONG — fails when conv_kernel and s_data have different layouts:
 var sum: Scalar[dtype] = 0
-sum += conv_kernel[k] * s_data[idx]   # error: cannot convert element_type to Float32
+sum += conv_kernel[k] * s_data[idx]   # error: cannot convert ElementType to Float32
 
 # CORRECT — rebind each element to Scalar[dtype]:
 var sum: Scalar[dtype] = 0
@@ -159,10 +188,10 @@ or passing to helper functions — even with a single tensor:
 # Read element as plain scalar
 var val = rebind[Scalar[dtype]](tensor[idx])
 # Write scalar back to tensor
-tensor[idx] = rebind[tensor.element_type](computed_scalar)
+tensor[idx] = rebind[tensor.ElementType](computed_scalar)
 ```
 
-`tensor.element_type` is `SIMD[dtype, element_size]` — for basic layouts
+`tensor.ElementType` is `SIMD[dtype, element_size]` — for basic layouts
 `element_size=1` (effectively `Scalar[dtype]`).
 
 ## Memory management
@@ -186,7 +215,7 @@ ctx.enqueue_copy(dev_buf, host_buf)
 
 # Map device buffer to host (context manager — auto-syncs)
 with dev_buf.map_to_host() as mapped:
-    var t = LayoutTensor[DType.float32, layout](mapped)
+    var t = TileTensor(mapped, row_major[1024]())
     print(t[0])
 
 # Memset
@@ -198,11 +227,8 @@ ctx.synchronize()
 
 ## Kernel launch
 
-**Critical**: `enqueue_function` takes the kernel function **twice** as
-compile-time parameters:
-
 ```mojo
-ctx.enqueue_function[my_kernel, my_kernel](
+ctx.enqueue_function[my_kernel](
     input_tensor,
     output_tensor,
     size,                    # scalar args passed directly
@@ -211,40 +237,49 @@ ctx.enqueue_function[my_kernel, my_kernel](
 )
 
 # 2D grid/block — use tuples:
-ctx.enqueue_function[kernel_2d, kernel_2d](
+ctx.enqueue_function[kernel_2d](
     args...,
     grid_dim=(col_blocks, row_blocks),
     block_dim=(BLOCK_SIZE, BLOCK_SIZE),
 )
 ```
 
-For parameterized kernels, bind parameters first:
+**If the kernel takes any comptime parameters, you MUST bind them first** —
+passing the parameterized name directly to `enqueue_function` produces a wall
+of "no matching method" / "DevicePassable" template errors:
 
 ```mojo
-comptime kernel = sum_kernel[SIZE, BATCH_SIZE]
-ctx.enqueue_function[kernel, kernel](out_buf, in_buf, grid_dim=N, block_dim=TPB)
+# WRONG — vector_add has a `LT: TensorLayout` parameter
+ctx.enqueue_function[vector_add](a, b, c, N, grid_dim=G, block_dim=B)
+
+# CORRECT — bind parameters, then launch the bound symbol
+comptime kernel = vector_add[type_of(layout)]
+ctx.enqueue_function[kernel](a, b, c, N, grid_dim=G, block_dim=B)
 ```
+
+Monomorphic kernels (signature uses `type_of(layout)` directly, no
+`[LT: TensorLayout]` etc.) can be passed by name with no binding step.
 
 ## Shared memory
 
-Allocate shared memory inside a kernel using `LayoutTensor.stack_allocation()`:
+Allocate shared memory inside a kernel using `stack_allocation` from the
+`layout` package — returns a `TileTensor` in the specified address space:
 
 ```mojo
+from layout import stack_allocation   # TileTensor-based shared alloc
 from std.gpu.memory import AddressSpace
 
-comptime tile_layout = Layout.row_major(TILE_M, TILE_K)
-var tile_shared = LayoutTensor[
-    DType.float32,
-    tile_layout,
-    MutAnyOrigin,
-    address_space=AddressSpace.SHARED,
-].stack_allocation()
+var tile_shared = stack_allocation[DType.float32,
+    address_space=AddressSpace.SHARED](row_major[TILE_M, TILE_K]())
+
+# Chain .fill() to zero-initialize (returns the tensor)
+var regs = stack_allocation[DType.float32](row_major[TM, TN]()).fill(0)
 
 # Load from global to shared
 tile_shared[thread_idx.y, thread_idx.x] = global_tensor[global_row, global_col]
 barrier()   # must sync before reading shared data
 
-# Alternative: raw pointer shared memory
+# Alternative: raw pointer shared memory (from std.memory, not layout)
 from std.memory import stack_allocation
 var sums = stack_allocation[
     512,
@@ -271,19 +306,30 @@ from std.gpu import lane_id, WARP_SIZE
 var my_lane = lane_id()          # 0..WARP_SIZE-1
 ```
 
-All return `UInt`. Compare with `UInt(int_val)` for bounds checks.
+All return `Int` — no casting needed for bounds checks.
 
 ## Synchronization and warp operations
 
 ```mojo
 from std.gpu import barrier
 from std.gpu.primitives import warp
-from std.os.atomic import Atomic
+from std.atomic import Atomic
 
 barrier()                                    # block-level sync
-var warp_sum = warp.sum(my_value)           # warp-wide sum reduction
-var result = warp.reduce[warp.shuffle_down, reduce_fn](val)  # custom warp reduce
-_ = Atomic.fetch_add(output_ptr, value)     # atomic add
+_ = Atomic.fetch_add(output_ptr, value)      # atomic add
+
+# Reductions — result broadcast to every lane
+warp.sum(val)         warp.max(val)         warp.min(val)
+warp.broadcast(val)                          # lane-0 value → all lanes
+warp.reduce[warp.shuffle_down, reduce_fn](val)  # custom reduction (broadcasts)
+
+# Shuffles — per-lane shift/swap, NOT broadcast
+warp.shuffle_down(val, offset)               # offset: UInt32
+warp.shuffle_xor(val, mask)                  # mask: UInt32 (butterfly)
+
+# `offset`/`mask` are `UInt32` — plain `Int` is a type-mismatch error:
+var m: UInt32 = 16
+var v = warp.shuffle_xor(val, m)
 ```
 
 ## GPU availability check
@@ -354,10 +400,8 @@ comptime dtype = DType.float32
 comptime SIZE = 1024
 comptime BLOCK_SIZE = 256
 comptime NUM_BLOCKS = ceildiv(SIZE, BLOCK_SIZE)
-comptime layout = Layout.row_major(SIZE)
+comptime layout = row_major[SIZE]()
 ```
-
-Derive buffer sizes from layouts: `comptime (layout.size())`.
 
 ## Complete 1D example (vector addition)
 
@@ -366,21 +410,21 @@ from std.math import ceildiv
 from std.sys import has_accelerator
 from std.gpu import global_idx
 from std.gpu.host import DeviceContext
-from layout import Layout, LayoutTensor
+from layout import TileTensor, row_major
 
 comptime dtype = DType.float32
 comptime N = 1024
 comptime BLOCK = 256
-comptime layout = Layout.row_major(N)
+comptime layout = row_major[N]()
 
 def add_kernel(
-    a: LayoutTensor[dtype, layout, MutAnyOrigin],
-    b: LayoutTensor[dtype, layout, MutAnyOrigin],
-    c: LayoutTensor[dtype, layout, MutAnyOrigin],
+    a: TileTensor[dtype, type_of(layout), MutAnyOrigin],
+    b: TileTensor[dtype, type_of(layout), MutAnyOrigin],
+    c: TileTensor[dtype, type_of(layout), MutAnyOrigin],
     size: Int,
 ):
     var tid = global_idx.x
-    if tid < UInt(size):
+    if tid < size:
         c[tid] = a[tid] + b[tid]
 
 def main() raises:
@@ -392,18 +436,18 @@ def main() raises:
     a_buf.enqueue_fill(1.0)
     b_buf.enqueue_fill(2.0)
 
-    var a = LayoutTensor[dtype, layout](a_buf)
-    var b = LayoutTensor[dtype, layout](b_buf)
-    var c = LayoutTensor[dtype, layout](c_buf)
+    var a = TileTensor(a_buf, layout)
+    var b = TileTensor(b_buf, layout)
+    var c = TileTensor(c_buf, layout)
 
-    ctx.enqueue_function[add_kernel, add_kernel](
+    ctx.enqueue_function[add_kernel](
         a, b, c, N,
         grid_dim=ceildiv(N, BLOCK),
         block_dim=BLOCK,
     )
 
     with c_buf.map_to_host() as host:
-        var result = LayoutTensor[dtype, layout](host)
+        var result = TileTensor(host, layout)
         print(result)
 ```
 
@@ -416,42 +460,43 @@ from std.gpu.sync import barrier
 from std.gpu.host import DeviceContext
 from std.gpu import thread_idx, block_idx
 from std.gpu.memory import AddressSpace
-from layout import Layout, LayoutTensor
+from layout import TileTensor, TensorLayout, row_major, stack_allocation
 
 comptime dtype = DType.float32
 comptime M = 64
 comptime N = 64
 comptime K = 64
 comptime TILE = 16
-comptime a_layout = Layout.row_major(M, K)
-comptime b_layout = Layout.row_major(K, N)
-comptime c_layout = Layout.row_major(M, N)
-comptime tile_a = Layout.row_major(TILE, TILE)
-comptime tile_b = Layout.row_major(TILE, TILE)
+comptime a_layout = row_major[M, K]()
+comptime b_layout = row_major[K, N]()
+comptime c_layout = row_major[M, N]()
 
-def matmul_kernel(
-    A: LayoutTensor[dtype, a_layout, MutAnyOrigin],
-    B: LayoutTensor[dtype, b_layout, MutAnyOrigin],
-    C: LayoutTensor[dtype, c_layout, MutAnyOrigin],
+def matmul_kernel[
+    ALayout: TensorLayout, BLayout: TensorLayout, CLayout: TensorLayout,
+](
+    A: TileTensor[dtype, ALayout, MutAnyOrigin],
+    B: TileTensor[dtype, BLayout, MutAnyOrigin],
+    C: TileTensor[dtype, CLayout, MutAnyOrigin],
 ):
+    comptime assert A.flat_rank == 2 and B.flat_rank == 2 and C.flat_rank == 2
     var tx = thread_idx.x
     var ty = thread_idx.y
     var row = block_idx.y * TILE + ty
     var col = block_idx.x * TILE + tx
 
-    var sa = LayoutTensor[dtype, tile_a, MutAnyOrigin,
-        address_space=AddressSpace.SHARED].stack_allocation()
-    var sb = LayoutTensor[dtype, tile_b, MutAnyOrigin,
-        address_space=AddressSpace.SHARED].stack_allocation()
+    var sa = stack_allocation[dtype,
+        address_space=AddressSpace.SHARED](row_major[TILE, TILE]())
+    var sb = stack_allocation[dtype,
+        address_space=AddressSpace.SHARED](row_major[TILE, TILE]())
 
-    var acc: C.element_type = 0.0
+    var acc: C.ElementType = 0.0
     comptime for k_tile in range(0, K, TILE):
-        if row < M and UInt(k_tile) + tx < K:
-            sa[ty, tx] = A[row, UInt(k_tile) + tx]
+        if row < M and k_tile + tx < K:
+            sa[ty, tx] = A[row, k_tile + tx]
         else:
             sa[ty, tx] = 0.0
-        if UInt(k_tile) + ty < K and col < N:
-            sb[ty, tx] = B[UInt(k_tile) + ty, col]
+        if k_tile + ty < K and col < N:
+            sb[ty, tx] = B[k_tile + ty, col]
         else:
             sb[ty, tx] = 0.0
         barrier()
@@ -465,12 +510,13 @@ def matmul_kernel(
 def main() raises:
     comptime assert has_accelerator(), "Requires GPU"
     var ctx = DeviceContext()
-    # ... allocate buffers, init data, launch:
-    # ctx.enqueue_function[matmul_kernel, matmul_kernel](
-    #     A, B, C,
-    #     grid_dim=(ceildiv(N, TILE), ceildiv(M, TILE)),
-    #     block_dim=(TILE, TILE),
-    # )
+    # ... allocate buffers, init data, then:
+    comptime kernel = matmul_kernel[type_of(a_layout), type_of(b_layout), type_of(c_layout)]
+    ctx.enqueue_function[kernel](
+        A, B, C,
+        grid_dim=(ceildiv(N, TILE), ceildiv(M, TILE)),
+        block_dim=(TILE, TILE),
+    )
 ```
 
 ## SIMD loads in kernels
@@ -480,7 +526,7 @@ def main() raises:
 var val = ptr.load[width=8](idx)          # SIMD[dtype, 8]
 var sum = val.reduce_add()                 # scalar reduction
 
-# LayoutTensor vectorized access
+# TileTensor vectorized access
 var vec_tensor = tensor.vectorize[1, 4]()  # group elements into SIMD[4]
 ```
 
@@ -506,7 +552,7 @@ def block_reduce(
         barrier()
 
     # Final warp reduction + atomic accumulate
-    if tid < UInt(WARP_SIZE):
+    if tid < WARP_SIZE:
         var v = warp.sum(sums[tid][0])
         if tid == 0:
             _ = Atomic.fetch_add(output, v)
@@ -524,14 +570,13 @@ var buf = DeviceBuffer[dtype](ctx, raw_ptr, count, owning=False)
 ```mojo
 from std.benchmark import Bench, BenchConfig, Bencher, BenchId, BenchMetric, ThroughputMeasure
 
-@parameter
+@parameter                                # outer: consumed as comptime param below
 @always_inline
-def bench_fn(mut b: Bencher) capturing raises:
-    @parameter
-    @always_inline
+def bench_fn(mut b: Bencher) raises:
+    @always_inline                         # inner: unified closure, passed by value
     def launch(ctx: DeviceContext) raises:
-        ctx.enqueue_function[kernel, kernel](args, grid_dim=G, block_dim=B)
-    b.iter_custom[launch](ctx)
+        ctx.enqueue_function[kernel](args, grid_dim=G, block_dim=B)
+    b.iter_custom(launch, ctx)             # value-taking overload — NOT `[launch]`
 
 var bench = Bench(BenchConfig(max_iters=50000))
 bench.bench_function[bench_fn](
@@ -539,6 +584,12 @@ bench.bench_function[bench_fn](
     [ThroughputMeasure(BenchMetric.bytes, total_bytes)],
 )
 ```
+
+`escaping` is removed; unified closures omit `capturing` too. The parametric
+form `b.iter_custom[kernel_launch](ctx)` (still `capturing[_]`) also works —
+prefer the value-taking overload above when the inner closure captures
+benchmark-local state. `bench_fn` keeps `@parameter` because
+`bench_function[bench_fn]` takes it as a comptime parameter.
 
 ## Hardware details
 

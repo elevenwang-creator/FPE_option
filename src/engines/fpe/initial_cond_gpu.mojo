@@ -41,7 +41,9 @@ def delta_gpu_kernel(
         var i_s = idx / n_v
         var j_v = idx % n_v
         var s = Float64(rebind[GPU_IC_SCALAR](grid_in[base_grid + i_s]))
-        var v = Float64(rebind[GPU_IC_SCALAR](grid_in[base_grid + n_s_ext + j_v]))
+        var v = Float64(
+            rebind[GPU_IC_SCALAR](grid_in[base_grid + n_s_ext + j_v])
+        )
         var ds = (s - s0) / s_sigma
         var dv = (v - v0) / v_sigma
         var val = norm * exp(-0.5 * (ds * ds + dv * dv))
@@ -53,11 +55,16 @@ def delta_gpu_kernel(
     if tid == 0:
         var sum_val: Float64 = 0.0
         for j in range(n_s * n_v):
-            sum_val = sum_val + Float64(rebind[GPU_IC_SCALAR](delta_out[base_out + j]))
+            sum_val = sum_val + Float64(
+                rebind[GPU_IC_SCALAR](delta_out[base_out + j])
+            )
         if sum_val > 0.0:
             var inv_sum = 1.0 / sum_val
             for j in range(n_s * n_v):
-                delta_out[base_out + j] = GPU_IC_SCALAR(Float64(rebind[GPU_IC_SCALAR](delta_out[base_out + j])) * inv_sum)
+                delta_out[base_out + j] = GPU_IC_SCALAR(
+                    Float64(rebind[GPU_IC_SCALAR](delta_out[base_out + j]))
+                    * inv_sum
+                )
 
 
 def initial_gpu_kernel(
@@ -89,7 +96,11 @@ def initial_gpu_kernel(
         for i_diag in range(n_basis):
             var diag_val: Float64 = 0.0
             for k in range(n_points):
-                var phi_ki = Float64(rebind[GPU_IC_SCALAR](phi_in[base_phi + k * GPU_IC_MAX_N + i_diag]))
+                var phi_ki = Float64(
+                    rebind[GPU_IC_SCALAR](
+                        phi_in[base_phi + k * GPU_IC_MAX_N + i_diag]
+                    )
+                )
                 diag_val = diag_val + phi_ki * phi_ki
             if diag_val > max_diag:
                 max_diag = diag_val
@@ -104,10 +115,18 @@ def initial_gpu_kernel(
         # Compute residual: r = delta - Phi^T * q (store in q[n_basis..2n_basis])
         var i_res = Int(tid)
         while i_res < n_points:
-            var r_val: Float64 = 0.0 - Float64(rebind[GPU_IC_SCALAR](delta_in[base_delta + i_res]))
+            var r_val: Float64 = 0.0 - Float64(
+                rebind[GPU_IC_SCALAR](delta_in[base_delta + i_res])
+            )
             for j in range(n_basis):
-                var phi_val = Float64(rebind[GPU_IC_SCALAR](phi_in[base_phi + i_res * GPU_IC_MAX_N + j]))
-                var q_val = Float64(rebind[GPU_IC_SCALAR](initial_out[base_q + j]))
+                var phi_val = Float64(
+                    rebind[GPU_IC_SCALAR](
+                        phi_in[base_phi + i_res * GPU_IC_MAX_N + j]
+                    )
+                )
+                var q_val = Float64(
+                    rebind[GPU_IC_SCALAR](initial_out[base_q + j])
+                )
                 r_val = r_val + phi_val * q_val
             initial_out[base_q + n_basis + i_res] = GPU_IC_SCALAR(r_val)
             i_res += Int(threads)
@@ -118,10 +137,18 @@ def initial_gpu_kernel(
         while i_q < n_basis:
             var g_val: Float64 = 0.0
             for k in range(n_points):
-                var phi_val = Float64(rebind[GPU_IC_SCALAR](phi_in[base_phi + k * GPU_IC_MAX_N + i_q]))
-                var r_val = Float64(rebind[GPU_IC_SCALAR](initial_out[base_q + n_basis + k]))
+                var phi_val = Float64(
+                    rebind[GPU_IC_SCALAR](
+                        phi_in[base_phi + k * GPU_IC_MAX_N + i_q]
+                    )
+                )
+                var r_val = Float64(
+                    rebind[GPU_IC_SCALAR](initial_out[base_q + n_basis + k])
+                )
                 g_val = g_val + phi_val * r_val
-            var current_q = Float64(rebind[GPU_IC_SCALAR](initial_out[base_q + i_q]))
+            var current_q = Float64(
+                rebind[GPU_IC_SCALAR](initial_out[base_q + i_q])
+            )
             var new_q = current_q - step * g_val
             if new_q < 0.0:
                 new_q = 0.0
@@ -140,8 +167,13 @@ def initial_gpu_kernel(
     if tid == 0:
         var sum_q: Float64 = 0.0
         for j in range(n_basis):
-            sum_q = sum_q + Float64(rebind[GPU_IC_SCALAR](initial_out[base_q + j]))
+            sum_q = sum_q + Float64(
+                rebind[GPU_IC_SCALAR](initial_out[base_q + j])
+            )
         if sum_q > 0.0:
             var inv_sum = 1.0 / sum_q
             for j in range(n_basis):
-                initial_out[base_q + j] = GPU_IC_SCALAR(Float64(rebind[GPU_IC_SCALAR](initial_out[base_q + j])) * inv_sum)
+                initial_out[base_q + j] = GPU_IC_SCALAR(
+                    Float64(rebind[GPU_IC_SCALAR](initial_out[base_q + j]))
+                    * inv_sum
+                )

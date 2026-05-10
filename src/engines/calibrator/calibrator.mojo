@@ -1,8 +1,11 @@
 from engines.calibrator.objective import ObjectiveFunction
 from engines.fpe.heston_params import HestonParams
-from numerics.optim.lm import LevenbergMarquardt, ResidualCallable, JacobianCallable
+from numerics.optim.lm import (
+    LevenbergMarquardt,
+    ResidualCallable,
+    JacobianCallable,
+)
 from numerics.utils import abs_f64, max_f64, min_f64, zeros
-from std.algorithm import parallelize
 
 
 def _params_to_vec(p: HestonParams) -> List[Float64]:
@@ -28,6 +31,7 @@ def _vec_to_params(x: List[Float64], base: HestonParams) -> HestonParams:
 
 struct CalibratorResidual[B: Int](ResidualCallable):
     """Residual callable for LM optimizer."""
+
     var obj: ObjectiveFunction[Self.B]
     var base: HestonParams
 
@@ -41,6 +45,7 @@ struct CalibratorResidual[B: Int](ResidualCallable):
 
 struct CalibratorJacobian[B: Int](JacobianCallable):
     """Jacobian callable using finite differences."""
+
     var obj: ObjectiveFunction[Self.B]
     var base: HestonParams
 
@@ -98,11 +103,15 @@ struct Calibrator[B: Int]:
         var x = _params_to_vec(init_params)
 
         var residual = CalibratorResidual[Self.B](
-            obj=ObjectiveFunction[Self.B](market_prices.copy(), strikes.copy(), expiries.copy()),
+            obj=ObjectiveFunction[Self.B](
+                market_prices.copy(), strikes.copy(), expiries.copy()
+            ),
             base=init_params,
         )
         var jacobian = CalibratorJacobian[Self.B](
-            obj=ObjectiveFunction[Self.B](market_prices.copy(), strikes.copy(), expiries.copy()),
+            obj=ObjectiveFunction[Self.B](
+                market_prices.copy(), strikes.copy(), expiries.copy()
+            ),
             base=init_params,
         )
 

@@ -1,7 +1,16 @@
-from engines.fpe.domain import FPEDomain
+"""PDF computation from FPE solution coefficients.
+
+Uses Kronecker-structured spmv: kron(Bs, Bv).spmv(q) = vec(Bs @ Q @ Bv^T)
+operates on small 1D factors instead of 2.1M-row kron matrix.
+"""
+
+from engines.fpe.domain import FPECachedBasis
+from sparse.kron_spmv import kron_spmv
 
 
-def _reshape_to_grid(flat: List[Float64], n_s: Int, n_v: Int) -> List[List[Float64]]:
+def _reshape_to_grid(
+    flat: List[Float64], n_s: Int, n_v: Int
+) -> List[List[Float64]]:
     var out: List[List[Float64]] = []
     var idx = 0
     for _ in range(n_s):
@@ -16,17 +25,8 @@ def _reshape_to_grid(flat: List[Float64], n_s: Int, n_v: Int) -> List[List[Float
     return out^
 
 
-struct PDFComputer[B: Int]:
-    def __init__(out self):
-        pass
-
-    def compute(self, domain: FPEDomain, q_t: List[Float64]) -> List[List[Float64]]:
-        var basis = domain.build_basis()
-        var Phi = basis.eval_tensor(domain.s_points, domain.v_points)
-        var pdf_flat_scalar = Phi.spmv(q_t)
-
-        var pdf_flat: List[Float64] = []
-        for i in range(len(pdf_flat_scalar)):
-            pdf_flat.append(pdf_flat_scalar[i])
-
-        return _reshape_to_grid(pdf_flat, len(domain.s_points), len(domain.v_points))
+def pdf_from_cached[ds: Int, dv: Int](
+    cached: FPECachedBasis[ds, dv], q_t: List[Float64]
+) -> List[List[Float64]]:
+    var pdf_flat = kron_spmv(cached.Bs, cached.Bv, q_t)
+    return _reshape_to_grid(pdf_flat, cached.n_s, cached.n_v)

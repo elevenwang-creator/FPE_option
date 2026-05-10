@@ -96,7 +96,9 @@ def radau5_gpu_kernel(
         while i_k < n:
             var f_val: Float64 = 0.0
             for j in range(n):
-                f_val += Float64(rebind[GPU_R_SCALAR](neg_M_inv_K[base_A + i_k * n + j])) * Float64(rebind[GPU_R_SCALAR](q_out[base_q + j]))
+                f_val += Float64(
+                    rebind[GPU_R_SCALAR](neg_M_inv_K[base_A + i_k * n + j])
+                ) * Float64(rebind[GPU_R_SCALAR](q_out[base_q + j]))
             workspace[base_ws + off_k1 + i_k] = GPU_R_SCALAR(f_val)
             workspace[base_ws + off_k2 + i_k] = GPU_R_SCALAR(f_val)
             workspace[base_ws + off_k3 + i_k] = GPU_R_SCALAR(f_val)
@@ -108,30 +110,86 @@ def radau5_gpu_kernel(
             for stage in range(3):
                 var i_f = Int(tid)
                 while i_f < n:
-                    var y_val: Float64 = Float64(rebind[GPU_R_SCALAR](q_out[base_q + i_f]))
+                    var y_val: Float64 = Float64(
+                        rebind[GPU_R_SCALAR](q_out[base_q + i_f])
+                    )
                     if stage == 0:
                         y_val = y_val + h_step * (
-                            a11 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k1 + i_f]))
-                            + a12 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k2 + i_f]))
-                            + a13 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k3 + i_f]))
+                            a11
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k1 + i_f]
+                                )
+                            )
+                            + a12
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k2 + i_f]
+                                )
+                            )
+                            + a13
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k3 + i_f]
+                                )
+                            )
                         )
                     elif stage == 1:
                         y_val = y_val + h_step * (
-                            a21 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k1 + i_f]))
-                            + a22 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k2 + i_f]))
-                            + a23 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k3 + i_f]))
+                            a21
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k1 + i_f]
+                                )
+                            )
+                            + a22
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k2 + i_f]
+                                )
+                            )
+                            + a23
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k3 + i_f]
+                                )
+                            )
                         )
                     else:
                         y_val = y_val + h_step * (
-                            a31 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k1 + i_f]))
-                            + a32 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k2 + i_f]))
-                            + a33 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k3 + i_f]))
+                            a31
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k1 + i_f]
+                                )
+                            )
+                            + a32
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k2 + i_f]
+                                )
+                            )
+                            + a33
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_k3 + i_f]
+                                )
+                            )
                         )
                     # f_stage = J @ y_stage (matvec)
                     var f_val: Float64 = 0.0
                     for j in range(n):
-                        f_val += Float64(rebind[GPU_R_SCALAR](neg_M_inv_K[base_A + i_f * n + j])) * y_val
-                    workspace[base_ws + off_f + stage * n + i_f] = GPU_R_SCALAR(f_val)
+                        f_val += (
+                            Float64(
+                                rebind[GPU_R_SCALAR](
+                                    neg_M_inv_K[base_A + i_f * n + j]
+                                )
+                            )
+                            * y_val
+                        )
+                    workspace[base_ws + off_f + stage * n + i_f] = GPU_R_SCALAR(
+                        f_val
+                    )
                     i_f += Int(threads)
             barrier()
 
@@ -159,25 +217,49 @@ def radau5_gpu_kernel(
                             a_coeff = a33
                         for ib in range(n):
                             for jb in range(n):
-                                var Jij = Float64(rebind[GPU_R_SCALAR](neg_M_inv_K[base_A + ib * n + jb]))
+                                var Jij = Float64(
+                                    rebind[GPU_R_SCALAR](
+                                        neg_M_inv_K[base_A + ib * n + jb]
+                                    )
+                                )
                                 var val = 0.0 - h_step * a_coeff * Jij
                                 if ib == jb and i_block == j_block:
                                     val = val + 1.0
-                                workspace[base_ws + off_block + (i_block * n + ib) * n3 + j_block * n + jb] = GPU_R_SCALAR(val)
+                                workspace[
+                                    base_ws
+                                    + off_block
+                                    + (i_block * n + ib) * n3
+                                    + j_block * n
+                                    + jb
+                                ] = GPU_R_SCALAR(val)
 
                 # rhs: f_stage - k_stage
                 for s in range(3):
                     for ib in range(n):
-                        var f_val = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_f + s * n + ib]))
-                        var k_val = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + s * n + ib]))
-                        workspace[base_ws + off_rhs + s * n + ib] = GPU_R_SCALAR(f_val - k_val)
+                        var f_val = Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_f + s * n + ib]
+                            )
+                        )
+                        var k_val = Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + s * n + ib]
+                            )
+                        )
+                        workspace[
+                            base_ws + off_rhs + s * n + ib
+                        ] = GPU_R_SCALAR(f_val - k_val)
 
                 # LU factorization with partial pivoting
                 for k in range(n3):
                     var pivot = k
                     var max_val: Float64 = 0.0
                     for row in range(k, n3):
-                        var v = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + row * n3 + k]))
+                        var v = Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_block + row * n3 + k]
+                            )
+                        )
                         if v < 0.0:
                             v = 0.0 - v
                         if v > max_val:
@@ -185,50 +267,151 @@ def radau5_gpu_kernel(
                             pivot = row
                     if pivot != k:
                         for j in range(n3):
-                            var tmp = workspace[base_ws + off_block + k * n3 + j]
-                            workspace[base_ws + off_block + k * n3 + j] = workspace[base_ws + off_block + pivot * n3 + j]
-                            workspace[base_ws + off_block + pivot * n3 + j] = tmp
+                            var tmp = workspace[
+                                base_ws + off_block + k * n3 + j
+                            ]
+                            workspace[
+                                base_ws + off_block + k * n3 + j
+                            ] = workspace[base_ws + off_block + pivot * n3 + j]
+                            workspace[
+                                base_ws + off_block + pivot * n3 + j
+                            ] = tmp
                         var tmp_r = workspace[base_ws + off_rhs + k]
-                        workspace[base_ws + off_rhs + k] = workspace[base_ws + off_rhs + pivot]
+                        workspace[base_ws + off_rhs + k] = workspace[
+                            base_ws + off_rhs + pivot
+                        ]
                         workspace[base_ws + off_rhs + pivot] = tmp_r
-                    var diag = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + k * n3 + k]))
+                    var diag = Float64(
+                        rebind[GPU_R_SCALAR](
+                            workspace[base_ws + off_block + k * n3 + k]
+                        )
+                    )
                     if diag != 0.0:
                         for row in range(k + 1, n3):
-                            var factor = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + row * n3 + k])) / diag
+                            var factor = (
+                                Float64(
+                                    rebind[GPU_R_SCALAR](
+                                        workspace[
+                                            base_ws + off_block + row * n3 + k
+                                        ]
+                                    )
+                                )
+                                / diag
+                            )
                             for j in range(k + 1, n3):
-                                var v = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + row * n3 + j]))
-                                v = v - factor * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + k * n3 + j]))
-                                workspace[base_ws + off_block + row * n3 + j] = GPU_R_SCALAR(v)
-                            var r_val = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + row]))
-                            r_val = r_val - factor * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + k]))
-                            workspace[base_ws + off_rhs + row] = GPU_R_SCALAR(r_val)
-                            workspace[base_ws + off_block + row * n3 + k] = GPU_R_SCALAR(0.0)
+                                var v = Float64(
+                                    rebind[GPU_R_SCALAR](
+                                        workspace[
+                                            base_ws + off_block + row * n3 + j
+                                        ]
+                                    )
+                                )
+                                v = v - factor * Float64(
+                                    rebind[GPU_R_SCALAR](
+                                        workspace[
+                                            base_ws + off_block + k * n3 + j
+                                        ]
+                                    )
+                                )
+                                workspace[
+                                    base_ws + off_block + row * n3 + j
+                                ] = GPU_R_SCALAR(v)
+                            var r_val = Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_rhs + row]
+                                )
+                            )
+                            r_val = r_val - factor * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[base_ws + off_rhs + k]
+                                )
+                            )
+                            workspace[base_ws + off_rhs + row] = GPU_R_SCALAR(
+                                r_val
+                            )
+                            workspace[
+                                base_ws + off_block + row * n3 + k
+                            ] = GPU_R_SCALAR(0.0)
 
                 # Back-substitution
                 for rev in range(n3):
                     var ii = n3 - 1 - rev
-                    var s_val = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + ii]))
+                    var s_val = Float64(
+                        rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + ii])
+                    )
                     for j in range(ii + 1, n3):
-                        s_val = s_val - Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + ii * n3 + j])) * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + j]))
-                    var d = Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_block + ii * n3 + ii]))
+                        s_val = s_val - Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_block + ii * n3 + j]
+                            )
+                        ) * Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_rhs + j]
+                            )
+                        )
+                    var d = Float64(
+                        rebind[GPU_R_SCALAR](
+                            workspace[base_ws + off_block + ii * n3 + ii]
+                        )
+                    )
                     if d != 0.0:
-                        workspace[base_ws + off_rhs + ii] = GPU_R_SCALAR(s_val / d)
+                        workspace[base_ws + off_rhs + ii] = GPU_R_SCALAR(
+                            s_val / d
+                        )
 
                 # Update k1, k2, k3: k_s += dk_s
                 for ib in range(n):
-                    workspace[base_ws + off_k1 + ib] = GPU_R_SCALAR(Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k1 + ib])) + Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + ib])))
-                    workspace[base_ws + off_k2 + ib] = GPU_R_SCALAR(Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k2 + ib])) + Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + n + ib])))
-                    workspace[base_ws + off_k3 + ib] = GPU_R_SCALAR(Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k3 + ib])) + Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_rhs + 2 * n + ib])))
+                    workspace[base_ws + off_k1 + ib] = GPU_R_SCALAR(
+                        Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_k1 + ib]
+                            )
+                        )
+                        + Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_rhs + ib]
+                            )
+                        )
+                    )
+                    workspace[base_ws + off_k2 + ib] = GPU_R_SCALAR(
+                        Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_k2 + ib]
+                            )
+                        )
+                        + Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_rhs + n + ib]
+                            )
+                        )
+                    )
+                    workspace[base_ws + off_k3 + ib] = GPU_R_SCALAR(
+                        Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_k3 + ib]
+                            )
+                        )
+                        + Float64(
+                            rebind[GPU_R_SCALAR](
+                                workspace[base_ws + off_rhs + 2 * n + ib]
+                            )
+                        )
+                    )
 
             barrier()
 
         # Accept step: y_{n+1} = y_n + h*(b1*k1 + b2*k2 + b3*k3)
         i = Int(tid)
         while i < n:
-            var y_new = Float64(rebind[GPU_R_SCALAR](q_out[base_q + i])) + h_step * (
-                b1 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k1 + i]))
-                + b2 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k2 + i]))
-                + b3 * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k3 + i]))
+            var y_new = Float64(
+                rebind[GPU_R_SCALAR](q_out[base_q + i])
+            ) + h_step * (
+                b1
+                * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k1 + i]))
+                + b2
+                * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k2 + i]))
+                + b3
+                * Float64(rebind[GPU_R_SCALAR](workspace[base_ws + off_k3 + i]))
             )
             if y_new < 0.0:
                 y_new = 0.0
@@ -248,4 +431,6 @@ def radau5_gpu_kernel(
         if sum_q > 0.0:
             var inv_sum = 1.0 / sum_q
             for j in range(n):
-                q_out[base_q + j] = GPU_R_SCALAR(Float64(rebind[GPU_R_SCALAR](q_out[base_q + j])) * inv_sum)
+                q_out[base_q + j] = GPU_R_SCALAR(
+                    Float64(rebind[GPU_R_SCALAR](q_out[base_q + j])) * inv_sum
+                )

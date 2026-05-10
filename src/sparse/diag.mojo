@@ -1,4 +1,9 @@
-"""Diagonal matrix with direct CSR construction."""
+"""Diagonal matrix with direct CSR construction and operator overloads.
+
+DiagMatrix is a lightweight representation storing only the diagonal values.
+Operators return DiagMatrix (cheap element-wise on small values list).
+Callers call .to_csr() when CSR format is needed.
+"""
 
 from sparse.csr import CSRMatrix
 
@@ -29,6 +34,27 @@ struct DiagMatrix(Movable):
             result.indptr[i + 1] = dest
 
         return result^
+
+    def __add__(self, rhs: Self) -> Self:
+        var n = self.size
+        var result: List[Float64] = []
+        for i in range(n):
+            result.append(self.values[i] + rhs.values[i])
+        return Self(result^)
+
+    def __matmul__(self, rhs: Self) -> Self:
+        var n = self.size
+        var result: List[Float64] = []
+        for i in range(n):
+            result.append(self.values[i] * rhs.values[i])
+        return Self(result^)
+
+    def __rmul__(self, alpha: Float64) -> Self:
+        var n = self.size
+        var result: List[Float64] = []
+        for i in range(n):
+            result.append(alpha * self.values[i])
+        return Self(result^)
 
 
 def identity_csr(n: Int) -> CSRMatrix:

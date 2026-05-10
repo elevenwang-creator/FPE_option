@@ -30,21 +30,23 @@ struct GPUTrainer[B: Int]:
     var learning_rate: Float64
     var n_iter: Int
 
-    def train(mut self, mut net: NaisNet, params: FBSDEParams) raises -> List[Float64]:
+    def train(
+        mut self, mut net: NaisNet, params: FBSDEParams
+    ) raises -> List[Float64]:
         """Training loop entirely on GPU using NAISGPUTrainExecutor."""
         from engines.nais.gpu_train_kernels import NAISGPUTrainExecutor
-        
+
         var net_params = _flatten_net_params(net)
         var n_params = len(net_params)
-        
+
         # Dispatch training to GPU executor
         var executor = NAISGPUTrainExecutor(
             learning_rate=self.learning_rate,
             n_iter=self.n_iter,
-            n_params=n_params
+            n_params=n_params,
         )
         executor.execute_training_on_gpu()
-        
+
         # Return dummy losses since processing was offloaded
         var losses: List[Float64] = []
         for _ in range(self.n_iter):

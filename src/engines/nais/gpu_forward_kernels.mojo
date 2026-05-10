@@ -105,13 +105,13 @@ def nais_forward_kernel[
         for j in range(hidden):
             var acc_b: Scalar[GPU_DTYPE] = 0.0
             for i in range(hidden):
-                acc_b = (
-                    acc_b + rebind[Scalar[GPU_DTYPE]](params[p_idx]) * h[i]
-                )
+                acc_b = acc_b + rebind[Scalar[GPU_DTYPE]](params[p_idx]) * h[i]
                 p_idx += 1
             acc_b = acc_b + rebind[Scalar[GPU_DTYPE]](params[p_idx])
             p_idx += 1
-            h[j] = h[j] + rebind[Scalar[GPU_DTYPE]](sin(Float64(acc_b + skip[j])))
+            h[j] = h[j] + rebind[Scalar[GPU_DTYPE]](
+                sin(Float64(acc_b + skip[j]))
+            )
 
     # Output u
     var u_out: Scalar[GPU_DTYPE] = 0.0

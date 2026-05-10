@@ -4,7 +4,9 @@ from std.memory import alloc
 from engines.nais.nais_net import NaisNet
 
 
-def _generate_brownian_paths(M: Int, N: Int, D: Int) -> List[List[List[Float64]]]:
+def _generate_brownian_paths(
+    M: Int, N: Int, D: Int
+) -> List[List[List[Float64]]]:
     var out: List[List[List[Float64]]] = []
     var total = M * (N + 1) * D
     var buf = alloc[Float64](total)
@@ -22,6 +24,7 @@ def _generate_brownian_paths(M: Int, N: Int, D: Int) -> List[List[List[Float64]]
         out.append(path^)
     buf.free()
     return out^
+
 
 def _flatten_mat(mut p: List[Float64], W: List[List[Float64]]):
     """Append all elements of a 2D weight matrix to the flat vector."""
@@ -69,8 +72,11 @@ def _flatten_net_params(net: NaisNet) -> List[Float64]:
     return p^
 
 
-def _unflatten_mat(p: List[Float64], idx: Int, mut W: List[List[Float64]]) -> Int:
-    """Read elements from flat vector into a 2D weight matrix. Returns updated idx."""
+def _unflatten_mat(
+    p: List[Float64], idx: Int, mut W: List[List[Float64]]
+) -> Int:
+    """Read elements from flat vector into a 2D weight matrix. Returns updated idx.
+    """
     var pos = idx
     for i in range(len(W)):
         for j in range(len(W[i])):
@@ -80,7 +86,8 @@ def _unflatten_mat(p: List[Float64], idx: Int, mut W: List[List[Float64]]) -> In
 
 
 def _unflatten_vec(p: List[Float64], idx: Int, mut b: List[Float64]) -> Int:
-    """Read elements from flat vector into a bias vector. Returns updated idx."""
+    """Read elements from flat vector into a bias vector. Returns updated idx.
+    """
     var pos = idx
     for j in range(len(b)):
         b[j] = p[pos]

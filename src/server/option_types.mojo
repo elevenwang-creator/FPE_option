@@ -33,7 +33,7 @@ struct PricingResult(Copyable, Movable, Writable):
 
 
 @fieldwise_init
-struct RoughBergomiParams(Copyable, Movable, Hashable):
+struct RoughBergomiParams(Copyable, Hashable, Movable):
     var H: Float64
     var eta: Float64
     var rho: Float64

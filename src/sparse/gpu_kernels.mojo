@@ -16,7 +16,7 @@ def spmv_kernel(
     nrows: Int,
 ):
     """GPU SpMV: block_idx limits scope, thread_idx distributes rows.
-    
+
     Architecture:
     grid_dim.x covers total elements via block_dim.x blocks.
     Threads cooperate sequentially or explicitly.
@@ -28,7 +28,9 @@ def spmv_kernel(
         var end = Int(indptr[r + 1])
         var sum: Scalar[SPARSE_DTYPE] = 0
         for j in range(start, end):
-            sum += rebind[Scalar[SPARSE_DTYPE]](data[j]) * rebind[Scalar[SPARSE_DTYPE]](x[Int(indices[j])])
+            sum += rebind[Scalar[SPARSE_DTYPE]](data[j]) * rebind[
+                Scalar[SPARSE_DTYPE]
+            ](x[Int(indices[j])])
         y[r] = rebind[y.element_type](sum)
 
 
@@ -41,21 +43,23 @@ def batch_spmv_kernel(
     nrows: Int,
     batch_size: Int,
 ):
-    """Batch SpMV: one block per batch map, threads cooperate over matrix rows."""
+    """Batch SpMV: one block per batch map, threads cooperate over matrix rows.
+    """
     var b = block_idx.x
     var tid = thread_idx.x
     var threads = block_dim.x
-    
+
     if Int(b) >= batch_size:
         return
-        
+
     var i = Int(tid)
     while i < nrows:
         var start = Int(indptr[i])
         var end = Int(indptr[i + 1])
         var sum: Scalar[SPARSE_DTYPE] = 0
         for j in range(start, end):
-            sum += rebind[Scalar[SPARSE_DTYPE]](data[j]) * rebind[Scalar[SPARSE_DTYPE]](X[Int(b), Int(indices[j])])
+            sum += rebind[Scalar[SPARSE_DTYPE]](data[j]) * rebind[
+                Scalar[SPARSE_DTYPE]
+            ](X[Int(b), Int(indices[j])])
         Y[Int(b), i] = rebind[Y.element_type](sum)
         i += Int(threads)
-

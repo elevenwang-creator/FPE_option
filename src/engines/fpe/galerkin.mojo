@@ -1,106 +1,125 @@
-"""Galerkin assembler for FPE stiffness and mass matrices.
+"""Galerkin assembler using Kronecker decomposition.
 
-Strictly follows FPE_Solver_Final_Version.py logic:
-  weights = kron(diag(sw), diag(vw))
-  s_diag = kron(diag(s), eye(n_v))
-  v_diag = kron(eye(n_s), diag(v))
-  s_sq_diag = kron(diag(s**2), eye(n_v))
-  s_v_diag = s_diag @ v_diag
-  s_s_v_diag = s_sq_diag @ v_diag
-
-  M = two_basis.T @ weights @ two_basis
-  K = s_partial.T @ integ_sbw @ two_basis
-    + s_partial.T @ integ_svw @ v_partial
-    + s_partial.T @ integ_ssvw @ s_partial
-    + v_partial.T @ integ_vbw @ two_basis
-    + v_partial.T @ integ_vw @ v_partial
-    + K_sv.T
+kron(A,B)^T @ kron(D1,D2) @ kron(C,E) = kron(A^T@D1@C, B^T@D2@E)
+Replaces 5 large SpGEMMs (~16s) with small 1D SpGEMMs + kron (~0.01s).
 """
 
-from engines.fpe.domain import FPEDomain
+from engines.fpe.domain import FPECachedBasis
 from engines.fpe.heston_params import HestonParams
 from sparse.csr import CSRMatrix
-from sparse.diag import DiagMatrix, identity_csr
-from sparse.ops import add, kron, scale, spgemm, sparse_transpose
+from sparse.diag import DiagMatrix
+from sparse.diag_mul import diag_row_scale
+from sparse.kron import kron
+from sparse.scale import scale
 
 
-struct GalerkinAssembler[B: Int]:
-    def __init__(out self):
-        pass
+def mass_from_cached[ds: Int, dv: Int](
+    cached: FPECachedBasis[ds, dv]
+) -> CSRMatrix:
+    var Bs_T = cached.Bs_T.copy()
+    var Bv_T = cached.Bv_T.copy()
+    var Bs = cached.Bs.copy()
+    var Bv = cached.Bv.copy()
+    var sw_d = DiagMatrix(cached.s_weights.copy()).to_csr()
+    var vw_d = DiagMatrix(cached.v_weights.copy()).to_csr()
+    var Ms = Bs_T @ diag_row_scale(sw_d, Bs)
+    var Mv = Bv_T @ diag_row_scale(vw_d, Bv)
+    return kron(Ms, Mv)
 
-    def mass_matrix(self, domain: FPEDomain) -> CSRMatrix:
-        var basis = domain.build_basis()
-        var two_basis = basis.eval_tensor(domain.s_points, domain.v_points)
-        var weights = domain.integ_weights()
-        var two_basis_T = sparse_transpose(two_basis)
-        return spgemm(spgemm(two_basis_T, weights), two_basis)
 
-    def stiffness_matrix(
-        self, domain: FPEDomain, params: HestonParams
-    ) -> CSRMatrix:
-        var basis = domain.build_basis()
+def _scaled_vec(n: Int, alpha: Float64, x: List[Float64]) -> List[Float64]:
+    var out: List[Float64] = []
+    for i in range(n):
+        out.append(alpha * x[i])
+    return out^
 
-        var two_basis = basis.eval_tensor(domain.s_points, domain.v_points)
-        var s_partial = basis.partial_s(domain.s_points, domain.v_points)
-        var v_partial = basis.partial_v(domain.s_points, domain.v_points)
 
-        var n_s = len(domain.s_points)
-        var n_v = len(domain.v_points)
-        var s = domain.s_points_phys.copy()
-        var v = domain.v_points_phys.copy()
-        var j = domain.jacobian_factor()
+def _mul_vecs(n: Int, x: List[Float64], y: List[Float64]) -> List[Float64]:
+    var out: List[Float64] = []
+    for i in range(n):
+        out.append(x[i] * y[i])
+    return out^
 
-        var r = params.r
-        var kappa = params.kappa
-        var theta = params.theta
-        var eta = params.sigma
-        var rho = params.rho
 
-        var s_sq: List[Float64] = []
-        for i in range(len(s)):
-            s_sq.append(s[i] * s[i])
+def stiffness_from_cached[ds: Int, dv: Int](
+    cached: FPECachedBasis[ds, dv], params: HestonParams
+) -> CSRMatrix:
+    var Bs = cached.Bs.copy()
+    var Bv = cached.Bv.copy()
+    var dBs = cached.dBs.copy()
+    var dBv = cached.dBv.copy()
+    var Bs_T = cached.Bs_T.copy()
+    var Bv_T = cached.Bv_T.copy()
+    var dBs_T = cached.dBs_T.copy()
+    var dBv_T = cached.dBv_T.copy()
 
-        var s_diag = kron(DiagMatrix(s.copy()).to_csr(), identity_csr(n_v))
-        var v_diag = kron(identity_csr(n_s), DiagMatrix(v.copy()).to_csr())
-        var s_sq_diag = kron(DiagMatrix(s_sq.copy()).to_csr(), identity_csr(n_v))
-        var s_v_diag = spgemm(s_diag, v_diag)
-        var s_s_v_diag = spgemm(s_sq_diag, v_diag)
+    var sw = cached.s_weights.copy()
+    var vw = cached.v_weights.copy()
+    var s = cached.s_points_phys.copy()
+    var v = cached.v_points_phys.copy()
+    var j = cached.jacobian
 
-        var weights = domain.integ_weights()
+    var r = params.r
+    var kappa = params.kappa
+    var theta = params.theta
+    var eta = params.sigma
+    var rho = params.rho
 
-        var k1 = (-r + 0.5 * rho * eta) / j
-        var k2 = 1.0 / j
-        var k3 = 0.5 / (j * j)
-        var k4 = 0.5 * rho * eta / j
-        var k5 = 0.5 * eta * eta - kappa * theta
-        var k6 = kappa + 0.5 * rho * eta
-        var k8 = 0.5 * eta * eta
+    var k1 = (-r + 0.5 * rho * eta) / j
+    var k2 = 1.0 / j
+    var k3 = 0.5 / (j * j)
+    var k4 = 0.5 * rho * eta / j
+    var k5 = 0.5 * eta * eta - kappa * theta
+    var k6 = kappa + 0.5 * rho * eta
+    var k8 = 0.5 * eta * eta
 
-        var integ_ssvw = spgemm(scale(k3, s_s_v_diag), weights)
-        var integ_svw = spgemm(scale(k4, s_v_diag), weights)
-        var integ_sbw = spgemm(
-            add(scale(k1, s_diag), scale(k2, s_v_diag)), weights
-        )
+    var nq_s = len(sw)
+    var nq_v = len(vw)
 
-        var s_partial_T = sparse_transpose(s_partial)
-        var K_sb = spgemm(spgemm(s_partial_T, integ_sbw), two_basis)
-        var K_sv = spgemm(spgemm(s_partial_T, integ_svw), v_partial)
-        var K_ssv = spgemm(spgemm(s_partial_T, integ_ssvw), s_partial)
+    var s_sw = _mul_vecs(nq_s, s, sw)
+    var v_vw = _mul_vecs(nq_v, v, vw)
+    var s_sq_sw: List[Float64] = []
+    for i in range(nq_s):
+        s_sq_sw.append(s[i] * s[i] * sw[i])
 
-        var integ_vbw = add(
-            scale(k5, weights), scale(k6, spgemm(v_diag, weights))
-        )
-        var integ_vw = spgemm(scale(k8, v_diag), weights)
+    var sw_d = DiagMatrix(sw.copy()).to_csr()
+    var vw_d = DiagMatrix(vw.copy()).to_csr()
+    var v_vw_d = DiagMatrix(v_vw.copy()).to_csr()
 
-        var v_partial_T = sparse_transpose(v_partial)
-        var K_vb = spgemm(spgemm(v_partial_T, integ_vbw), two_basis)
-        var K_vv = spgemm(spgemm(v_partial_T, integ_vw), v_partial)
-        var K_vs = sparse_transpose(K_sv)
+    var Ns = Bs_T @ diag_row_scale(sw_d, Bs)
+    var Nv = Bv_T @ diag_row_scale(vw_d, Bv)
 
-        var K = add(K_sb, K_vb)
-        var K2 = add(K, K_ssv)
-        var K3 = add(K2, K_vv)
-        var K4 = add(K3, K_vs)
-        var K5 = add(K4, K_sv)
+    var S1s = dBs_T @ diag_row_scale(
+        DiagMatrix(_scaled_vec(nq_s, k1, s_sw)).to_csr(), Bs
+    )
+    var S2s = dBs_T @ diag_row_scale(
+        DiagMatrix(_scaled_vec(nq_s, k2, s_sw)).to_csr(), Bs
+    )
+    var V1v = Nv^
+    var V2v = Bv_T @ diag_row_scale(v_vw_d, Bv)
 
-        return K5^
+    var K_sb = kron(S1s, V1v) + kron(S2s, V2v)
+
+    var S3s = dBs_T @ diag_row_scale(
+        DiagMatrix(_scaled_vec(nq_s, k4, s_sw)).to_csr(), Bs
+    )
+    var V3v = Bv_T @ diag_row_scale(v_vw_d, dBv)
+    var K_sv = kron(S3s, V3v)
+
+    var S4s = dBs_T @ diag_row_scale(
+        DiagMatrix(_scaled_vec(nq_s, k3, s_sq_sw)).to_csr(), dBs
+    )
+    var K_ssv = kron(S4s, V2v)
+
+    var V4v_base = dBv_T @ diag_row_scale(
+        DiagMatrix(vw.copy()).to_csr(), Bv
+    )
+    var V5v_base = dBv_T @ diag_row_scale(v_vw_d, Bv)
+    var K_vb = kron(Ns, scale(k5, V4v_base) + scale(k6, V5v_base))
+
+    var V6v = dBv_T @ diag_row_scale(v_vw_d, dBv)
+    var K_vv = kron(scale(k8, Ns), V6v)
+
+    var K_vs = K_sv.transpose()
+
+    return (K_sb + K_vb + K_ssv + K_vv + K_vs + K_sv)

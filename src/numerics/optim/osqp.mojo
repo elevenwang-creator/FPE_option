@@ -22,7 +22,7 @@ Correctness fixes:
 """
 
 from sparse.csr import CSRMatrix
-from sparse.csc import csr_to_csc
+from sparse.csc import CSCMatrix
 from numerics.sparse_lu import SparseLU
 from numerics.utils import FixedSizeVector
 from std.math import sqrt, abs, max
@@ -60,14 +60,14 @@ struct OSQPSolver(Copyable, Movable):
 
         # Build P = M^T M + lambda * I, then KKT = P + (sigma + rho) * I
         var Mt = M.transpose()
-        var MtM = _spgemm(Mt, M)
+        var MtM = Mt @ M
 
         # In-place diagonal shift: MtM += (lambda + sigma + rho) * I
         var alpha = self.lambda_reg + self.sigma + self.rho
         _add_alpha_to_diagonal_inplace(MtM, alpha)
 
         # Factorize KKT (= MtM after shift)
-        var KKT_csc = csr_to_csc(MtM)
+        var KKT_csc = MtM.to_csc()
         var lu = SparseLU(n)
         var factorize_ok = True
         try:
@@ -83,7 +83,7 @@ struct OSQPSolver(Copyable, Movable):
             return fallback^
 
         # Linear term: q = M^T b (positive sign — used as +q in RHS)
-        var q_list = Mt.spmv(b)
+        var q_list = Mt.spmv_new(b)
 
         # Pre-allocate all FixedSizeVector buffers (zero heap allocation in loop)
         var q = FixedSizeVector(n)
@@ -159,7 +159,9 @@ struct OSQPSolver(Copyable, Movable):
                 u_norm_sq += u[j] * u[j]
 
             # Convergence check (standard OSQP criteria)
-            var eps_prim = eps_abs_val + eps_rel_val * sqrt(max(z_norm_sq, x_norm_sq))
+            var eps_prim = eps_abs_val + eps_rel_val * sqrt(
+                max(z_norm_sq, x_norm_sq)
+            )
             var eps_dual = eps_abs_val + eps_rel_val * rho_val * sqrt(u_norm_sq)
 
             if sqrt(primal_res_sq) < eps_prim and sqrt(dual_res_sq) < eps_dual:
@@ -177,11 +179,6 @@ struct OSQPSolver(Copyable, Movable):
             return []
         var M = CSRMatrix.from_dense(A)
         return self.solve_nnls_sparse(M, b)
-
-
-def _spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
-    from sparse.ops import spgemm as sparse_spgemm
-    return sparse_spgemm(A, B)
 
 
 # --- Backward-compatible aliases for existing tests ---
@@ -209,20 +206,24 @@ struct OSQP(Copyable, Movable):
 
 
 struct ProjectedGradient(Copyable, Movable):
-    """Simple projected gradient descent for NNLS: min ||Ac - b||^2  s.t. c >= 0."""
+    """Simple projected gradient descent for NNLS: min ||Ac - b||^2  s.t. c >= 0.
+    """
 
     var max_iter: Int
     var tol: Float64
     var step_size: Float64
 
-    def __init__(out self, max_iter: Int = 1000, tol: Float64 = 1e-8, step_size: Float64 = -1.0):
+    def __init__(
+        out self,
+        max_iter: Int = 1000,
+        tol: Float64 = 1e-8,
+        step_size: Float64 = -1.0,
+    ):
         self.max_iter = max_iter
         self.tol = tol
         self.step_size = step_size
 
-    def solve(
-        self, A: List[List[Float64]], b: List[Float64]
-    ) -> List[Float64]:
+    def solve(self, A: List[List[Float64]], b: List[Float64]) -> List[Float64]:
         var nrows = len(A)
         if nrows == 0:
             return []

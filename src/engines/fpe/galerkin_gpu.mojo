@@ -37,8 +37,16 @@ def spmatrix_gpu_kernel(
         var sum: Float64 = 0.0
         for k in range(n_points):
             var w_val = Float64(rebind[GPU_GAL_SCALAR](weights_in[base_w + k]))
-            var phi_ki = Float64(rebind[GPU_GAL_SCALAR](phi_in[base_phi + k * GPU_GAL_MAX_N + row]))
-            var phi_kj = Float64(rebind[GPU_GAL_SCALAR](phi_in[base_phi + k * GPU_GAL_MAX_N + col]))
+            var phi_ki = Float64(
+                rebind[GPU_GAL_SCALAR](
+                    phi_in[base_phi + k * GPU_GAL_MAX_N + row]
+                )
+            )
+            var phi_kj = Float64(
+                rebind[GPU_GAL_SCALAR](
+                    phi_in[base_phi + k * GPU_GAL_MAX_N + col]
+                )
+            )
             sum += w_val * phi_ki * phi_kj
         spmatrix_out[base_mat + idx] = GPU_GAL_SCALAR(sum)
         idx += Int(threads)

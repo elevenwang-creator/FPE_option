@@ -5,7 +5,7 @@ Imports modular LU from sparse_lu.mojo for sparse factorization.
 
 from numerics.utils import abs_f64, zeros
 from sparse.csr import CSRMatrix
-from sparse.csc import csr_to_csc
+from sparse.csc import CSCMatrix
 from numerics.sparse_lu import SparseLU
 from std.sys import simd_width_of
 
@@ -71,7 +71,7 @@ def compute_jacobian(
     var n = M.nrows
     var lu = SparseLU(n)
     try:
-        lu.factorize(csr_to_csc(M))
+        lu.factorize(M.to_csc())
     except:
         pass
 

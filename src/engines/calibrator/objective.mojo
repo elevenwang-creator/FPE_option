@@ -83,7 +83,9 @@ struct ObjectiveFunction[B: Int](Copyable, Movable):
             )
 
         var residuals: List[Float64] = []
-        var solver = FPESolver[Self.B](rtol=1e-5, atol=1e-7, max_step=0.02, first_step=0.0)
+        var solver = FPESolver[Self.B](
+            rtol=1e-5, atol=1e-7, max_step=0.02, first_step=0.0
+        )
         var pdf_comp = PDFComputer[Self.B]()
 
         for i in range(len(self.market_prices)):

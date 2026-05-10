@@ -1,5 +1,20 @@
-from std.math import pi, cos, sqrt, abs
-from std.collections import List
+"""B-spline knot generation with Gauss-Legendre quadrature.
+
+Optimized with vectorize + Span + unsafe_ptr:
+- normalize: sequential min/max reduce + vectorize normalize
+- linspace: vectorize fill
+- chebyshev_knots: vectorize angle/cos/transform
+- func_parabolic: insertion sort (O(n) on nearly-sorted) + vectorize eval
+- knots_concat: sorted 3-way merge (O(n)) + vectorize round + unique scan
+- generate_knots: sequential boundary fill + copy internal
+"""
+
+from std.algorithm.backend.vectorize import vectorize
+from std.memory import Span
+from std.math import pi, cos, sqrt, abs, round
+from std.sys import simd_width_of
+
+comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
 
 struct GaussLegendre:
@@ -85,31 +100,71 @@ struct GenerateKnots(Copyable, Movable):
         self.cheby_knots = cheby_num
 
     def normalize(self, x: List[Float64]) -> List[Float64]:
+        var n = len(x)
+        if n == 0:
+            return []
+
+        var x_span = Span(x)
         var min_val = x[0]
         var max_val = x[0]
-        for i in range(len(x)):
-            if x[i] < min_val:
-                min_val = x[i]
-            if x[i] > max_val:
-                max_val = x[i]
-        var result: List[Float64] = []
-        for i in range(len(x)):
-            result.append((x[i] - min_val) / (max_val - min_val))
+
+        for i in range(n):
+            var v = x_span[i]
+            if v < min_val:
+                min_val = v
+            if v > max_val:
+                max_val = v
+
+        var range_val = max_val - min_val
+        if range_val == 0.0:
+            var result: List[Float64] = []
+            for _ in range(n):
+                result.append(0.0)
+            return result^
+
+        var result = List[Float64]()
+        for _ in range(n):
+            result.append(0.0)
+        var r_ptr = result.unsafe_ptr()
+        var inv_range = 1.0 / range_val
+
+        def vnorm[
+            width: Int
+        ](p_off: Int) {read min_val, read inv_range, read x_span, read r_ptr}:
+            for w in range(width):
+                r_ptr[p_off + w] = (x_span[p_off + w] - min_val) * inv_range
+
+        vectorize[SIMD_W](n, vnorm)
+
         return result^
 
-    def linspace(self, start: Float64, stop: Float64, count: Int) -> List[Float64]:
-        var out: List[Float64] = []
+    def linspace(
+        self, start: Float64, stop: Float64, count: Int
+    ) -> List[Float64]:
+        var out = List[Float64]()
         if count <= 0:
             return out^
         if count == 1:
             out.append(start)
             return out^
+
+        for _ in range(count):
+            out.append(0.0)
+
         var step = (stop - start) / Float64(count - 1)
-        for i in range(count):
-            out.append(start + Float64(i) * step)
+        var r_ptr = out.unsafe_ptr()
+
+        def vfill[width: Int](p_off: Int) {read start, read step, read r_ptr}:
+            for w in range(width):
+                r_ptr[p_off + w] = start + Float64(p_off + w) * step
+
+        vectorize[SIMD_W](count, vfill)
+
         return out^
 
-    def func_parabolic(self, n: Int, boundary: Tuple[Float64, Float64]) -> Tuple[Int, List[Float64]]:
+    def func_parabolic(
+        self, n: Int, boundary: Tuple[Float64, Float64]
+    ) -> Tuple[Int, List[Float64]]:
         var low_y = boundary[0]
         var high_y = boundary[1]
         var centor = self.center
@@ -128,64 +183,78 @@ struct GenerateKnots(Copyable, Movable):
 
         var upward = sqrt(2.0 * (high_y - centor) / a) + factor
 
-        var x: List[Float64] = []
-        var lin_part = self.linspace(0.0, upward, n_adj - 1)
-        for i in range(len(lin_part)):
-            x.append(lin_part[i])
+        var x = self.linspace(0.0, upward, n_adj - 1)
         x.append(factor)
 
-        for i in range(len(x)):
-            for j in range(i + 1, len(x)):
-                if x[i] > x[j]:
-                    var tmp = x[i]
-                    x[i] = x[j]
-                    x[j] = tmp
+        var x_len = len(x)
+        x = _insertion_sort(x, x_len)
 
-        var y: List[Float64] = []
-        for _ in range(len(x)):
+        var y = List[Float64]()
+        for _ in range(x_len):
             y.append(0.0)
 
-        for i in range(len(x)):
-            y[i] = -0.5 * a * (x[i] - factor) * (x[i] - factor) + centor
+        var y_ptr = y.unsafe_ptr()
+        var x_span = Span(x)
+
+        def vparab[
+            width: Int
+        ](p_off: Int) {
+            read a,
+            read factor,
+            read centor,
+            read x_span,
+            read y_ptr,
+        }:
+            for w in range(width):
+                var xi = x_span[p_off + w]
+                y_ptr[p_off + w] = (
+                    -0.5 * a * (xi - factor) * (xi - factor) + centor
+                )
+
+        vectorize[SIMD_W](x_len, vparab)
 
         var min_dist = abs(y[0] - centor)
         var center_idx = 0
-        for i in range(1, len(y)):
+        for i in range(1, x_len):
             var d = abs(y[i] - centor)
             if d < min_dist:
                 min_dist = d
                 center_idx = i
 
-        for i in range(len(x)):
-            if i <= center_idx:
-                y[i] = -0.5 * a * (x[i] - factor) * (x[i] - factor) + centor
-            else:
-                y[i] = 0.5 * a * (x[i] - factor) * (x[i] - factor) + centor
+        for i in range(center_idx + 1, x_len):
+            y[i] = 0.5 * a * (x[i] - factor) * (x[i] - factor) + centor
 
-        for i in range(len(y)):
-            for j in range(i + 1, len(y)):
-                if y[i] > y[j]:
-                    var tmp = y[i]
-                    y[i] = y[j]
-                    y[j] = tmp
+        var y_len = len(y)
+        y = _insertion_sort(y, y_len)
 
         return (n_adj, y^)
 
     def chebyshev_knots(self, n: Int, a: Float64, b: Float64) -> List[Float64]:
-        var result: List[Float64] = []
-        for i in range(n):
-            var angle = (2.0 * Float64(i) + 1.0) * pi / (2.0 * Float64(n))
-            var node = cos(angle)
-            result.append(node)
-        var out: List[Float64] = []
-        out.append(-1.0)
-        for i in range(len(result)):
-            out.append(result[i])
-        out.append(1.0)
-        var transformed: List[Float64] = []
-        for i in range(len(out)):
-            transformed.append((b - a) / 2.0 * out[i] + (a + b) / 2.0)
-        return transformed^
+        var out = List[Float64]()
+        var total = n + 2
+        for _ in range(total):
+            out.append(0.0)
+
+        var r_ptr = out.unsafe_ptr()
+
+        r_ptr[0] = a
+        r_ptr[total - 1] = b
+
+        var scale = (b - a) / 2.0
+        var shift = (a + b) / 2.0
+        var inv_2n = pi / (2.0 * Float64(n))
+
+        def vcheby[
+            width: Int
+        ](p_off: Int) {read inv_2n, read scale, read shift, read r_ptr}:
+            for w in range(width):
+                var idx = p_off + w
+                var angle = (2.0 * Float64(idx) + 1.0) * inv_2n
+                r_ptr[1 + idx] = scale * cos(angle) + shift
+
+        vectorize[SIMD_W](n, vcheby)
+
+        return out^
 
     def knots_concat(
         self,
@@ -202,31 +271,62 @@ struct GenerateKnots(Copyable, Movable):
             if abs(knots[i] - right) < 1e-10 or knots[i] > right:
                 right_knots.append(knots[i])
 
-        var points: List[Float64] = []
-        for i in range(len(left_knots)):
-            points.append(left_knots[i])
-        for i in range(len(medim_knot)):
-            points.append(medim_knot[i])
-        for i in range(len(right_knots)):
-            points.append(right_knots[i])
+        var l_len = len(left_knots)
+        var m_len = len(medim_knot)
+        var r_len = len(right_knots)
+        var total = l_len + m_len + r_len
 
-        for i in range(len(points)):
-            for j in range(i + 1, len(points)):
-                if points[i] > points[j]:
-                    var tmp = points[i]
-                    points[i] = points[j]
-                    points[j] = tmp
+        var merged = List[Float64]()
+        for _ in range(total):
+            merged.append(0.0)
 
-        var rounded: List[Float64] = []
-        for i in range(len(points)):
-            rounded.append(Float64(Int(points[i] * 1e8)) / 1e8)
+        var m_ptr = merged.unsafe_ptr()
+        var l_span = Span(left_knots)
+        var md_span = Span(medim_knot)
+        var r_span = Span(right_knots)
+
+        var li = 0
+        var mi = 0
+        var ri = 0
+        var di = 0
+
+        while li < l_len or mi < m_len or ri < r_len:
+            var v_l = 1e300
+            var v_m = 1e300
+            var v_r = 1e300
+            if li < l_len:
+                v_l = l_span[li]
+            if mi < m_len:
+                v_m = md_span[mi]
+            if ri < r_len:
+                v_r = r_span[ri]
+
+            if v_l <= v_m and v_l <= v_r:
+                m_ptr[di] = v_l
+                li += 1
+            elif v_m <= v_l and v_m <= v_r:
+                m_ptr[di] = v_m
+                mi += 1
+            else:
+                m_ptr[di] = v_r
+                ri += 1
+            di += 1
+
+        var rounded = List[Float64]()
+        for _ in range(total):
+            rounded.append(0.0)
+        var rd_ptr = rounded.unsafe_ptr()
+
+        for i in range(total):
+            rd_ptr[i] = round(m_ptr[i] * 1e8) / 1e8
 
         var unique: List[Float64] = []
-        if len(rounded) > 0:
+        if total > 0:
             unique.append(rounded[0])
-            for i in range(1, len(rounded)):
+            for i in range(1, total):
                 if rounded[i] > unique[len(unique) - 1] + 1e-9:
                     unique.append(rounded[i])
+
         return unique^
 
     def generate_knots(self) -> List[Float64]:
@@ -254,6 +354,8 @@ struct GenerateKnots(Copyable, Movable):
                 x_normal.append(
                     (x_knots[i] - boundary[0]) / (boundary[1] - boundary[0])
                 )
+            var xn_len = len(x_normal)
+            x_normal = _insertion_sort(x_normal, xn_len)
 
             var parabolic_result = self.func_parabolic(
                 internal_num, (boundary_normal[0], boundary_normal[1])
@@ -264,12 +366,38 @@ struct GenerateKnots(Copyable, Movable):
                 parabolic_knots, x_normal, x_min_normal, x_max_normal
             )
 
-        var final_knots: List[Float64] = []
-        for _ in range(p):
-            final_knots.append(boundary_normal[0])
-        for i in range(len(internal_knots)):
-            final_knots.append(internal_knots[i])
-        for _ in range(p):
-            final_knots.append(boundary_normal[1])
+        var i_len = len(internal_knots)
+        var total = 2 * p + i_len
+        var final_knots = List[Float64]()
+        for _ in range(total):
+            final_knots.append(0.0)
+
+        var fk_ptr = final_knots.unsafe_ptr()
+        var ik_span = Span(internal_knots)
+        var bv_lo = boundary_normal[0]
+        var bv_hi = boundary_normal[1]
+
+        for i in range(total):
+            if i < p:
+                fk_ptr[i] = bv_lo
+            elif i < p + i_len:
+                fk_ptr[i] = ik_span[i - p]
+            else:
+                fk_ptr[i] = bv_hi
 
         return final_knots^
+
+
+def _insertion_sort(mut x: List[Float64], n: Int) -> List[Float64]:
+    var result = x^
+    x = List[Float64]()
+    if n > 1:
+        var x_ptr = result.unsafe_ptr()
+        for i in range(1, n):
+            var key = x_ptr[i]
+            var j = i - 1
+            while j >= 0 and x_ptr[j] > key:
+                x_ptr[j + 1] = x_ptr[j]
+                j -= 1
+            x_ptr[j + 1] = key
+    return result^

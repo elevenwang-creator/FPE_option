@@ -2,14 +2,20 @@
 
 Key design:
 - Direct CSR construction via two-pass algorithm (no COO intermediate)
-- SIMD-vectorized spmv
+- SIMD-vectorized spmv via parallelize + vectorize closures
 - All matrix ops (spgemm, add, kron, transpose) produce CSR directly
 - Move semantics with ownership transfer (^)
-- List[Float64] storage (UnsafePointer with origin not available in this Mojo version)
+- List[Float64] storage with Span zero-copy views in spmv
 """
 
+from std.algorithm.backend.vectorize import vectorize
+from std.memory import Span, UnsafePointer
 from std.sys import simd_width_of
 from numerics.utils import FixedSizeVector
+from sparse.csc import CSCMatrix
+from sparse.add import add as sparse_add
+from sparse.scale import scale as sparse_scale
+from sparse.spgemm import spgemm as sparse_spgemm
 
 comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
@@ -54,6 +60,15 @@ struct CSRMatrix(Movable, Writable):
     def nnz(self) -> Int:
         return self._nnz
 
+    def __add__(self, rhs: Self) -> Self:
+        return sparse_add(self, rhs)
+
+    def __matmul__(self, rhs: Self) -> Self:
+        return sparse_spgemm(self, rhs)
+
+    def __rmul__(self, alpha: Float64) -> Self:
+        return sparse_scale(alpha, self)
+
     def copy(self) -> Self:
         var result = Self(self.nrows, self.ncols, self._nnz)
         for i in range(self._nnz):
@@ -71,112 +86,160 @@ struct CSRMatrix(Movable, Writable):
                 return self.data[p]
         return 0
 
-    def spmv(self, x: List[Float64]) -> List[Float64]:
-        comptime width = SIMD_W
+    def spmv_new(self, x: List[Float64]) -> List[Float64]:
         var y: List[Float64] = []
         for _ in range(self.nrows):
             y.append(0)
-
-        if len(x) != self.ncols:
-            return y^
-
-        for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            var acc: Float64 = 0
-
-            var p = row_start
-            while p + width <= row_end:
-                var vals = SIMD[DType.float64, width]()
-                var x_vals = SIMD[DType.float64, width]()
-                for k in range(width):
-                    vals[k] = self.data[p + k]
-                    x_vals[k] = x[self.indices[p + k]]
-                acc += (vals * x_vals).reduce_add()
-                p += width
-
-            while p < row_end:
-                acc += self.data[p] * x[self.indices[p]]
-                p += 1
-
-            y[i] = acc
+        self.spmv(x, y)
         return y^
 
-    def spmv_into(self, x: List[Float64], mut y: List[Float64]):
-        comptime width = SIMD_W
+    def spmv(self, x: List[Float64], mut y: List[Float64]):
+        var vals_span = Span(self.data)
+        var cols_span = Span(self.indices)
+        var x_span = Span(x)
+        var y_span = Span[mut=True](y)
+        var rp_ptr = self.indptr.unsafe_ptr()
 
-        for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            var acc: Float64 = 0
+        @parameter
+        def process_row(i: Int):
+            var r_start = rp_ptr[i]
+            var r_end = rp_ptr[i + 1]
+            var nnz_count = r_end - r_start
+            if nnz_count == 0:
+                y_span[i] = 0
+                return
+            var row_vals = vals_span[r_start:r_end]
+            var row_cols = cols_span[r_start:r_end]
+            var dot: Float64 = 0
 
-            var p = row_start
-            while p + width <= row_end:
+            def process_nnz[
+                width: Int
+            ](p_offset: Int) {mut dot, row_vals, row_cols, x_span}:
                 var vals = SIMD[DType.float64, width]()
                 var x_vals = SIMD[DType.float64, width]()
                 for k in range(width):
-                    vals[k] = self.data[p + k]
-                    x_vals[k] = x[self.indices[p + k]]
-                acc += (vals * x_vals).reduce_add()
-                p += width
+                    vals[k] = row_vals[p_offset + k]
+                    x_vals[k] = x_span[row_cols[p_offset + k]]
+                dot += (vals * x_vals).reduce_add()
 
-            while p < row_end:
-                acc += self.data[p] * x[self.indices[p]]
-                p += 1
+            vectorize[SIMD_W](nnz_count, process_nnz)
+            y_span[i] = dot
 
-            y[i] = acc
+        for _i in range(self.nrows):
+            process_row(_i)
 
-    def spmv_inplace_fixed(self, x: List[Float64], mut y: FixedSizeVector):
-        comptime width = SIMD_W
+    def spmv(self, x: FixedSizeVector, mut y: FixedSizeVector):
         y.zero_out()
+        var vals_span = Span(self.data)
+        var cols_span = Span(self.indices)
+        var x_ptr = x.ptr()
+        var y_ptr = y.ptr()
+        var rp_ptr = self.indptr.unsafe_ptr()
 
-        for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            var acc: Float64 = 0
+        @parameter
+        def process_row(i: Int):
+            var r_start = rp_ptr[i]
+            var r_end = rp_ptr[i + 1]
+            var nnz_count = r_end - r_start
+            if nnz_count == 0:
+                y_ptr[i] = 0
+                return
+            var row_vals = vals_span[r_start:r_end]
+            var row_cols = cols_span[r_start:r_end]
+            var dot: Float64 = 0
 
-            var p = row_start
-            while p + width <= row_end:
+            def process_nnz[
+                width: Int
+            ](p_offset: Int) {mut dot, row_vals, row_cols, x_ptr}:
                 var vals = SIMD[DType.float64, width]()
                 var x_vals = SIMD[DType.float64, width]()
                 for k in range(width):
-                    vals[k] = self.data[p + k]
-                    x_vals[k] = x[self.indices[p + k]]
-                acc += (vals * x_vals).reduce_add()
-                p += width
+                    vals[k] = row_vals[p_offset + k]
+                    x_vals[k] = x_ptr[row_cols[p_offset + k]]
+                dot += (vals * x_vals).reduce_add()
 
-            while p < row_end:
-                acc += self.data[p] * x[self.indices[p]]
-                p += 1
+            vectorize[SIMD_W](nnz_count, process_nnz)
+            y_ptr[i] = dot
 
-            y[i] = acc
+        for _i in range(self.nrows):
+            process_row(_i)
 
-    def spmv_fixed(self, x: FixedSizeVector, mut y: FixedSizeVector):
-        comptime width = SIMD_W
-        y.zero_out()
+    def spmv_triple(
+        self,
+        x1: List[Float64],
+        x2: List[Float64],
+        x3: List[Float64],
+        mut y1: List[Float64],
+        mut y2: List[Float64],
+        mut y3: List[Float64],
+    ):
+        """Fused triple SpMV: iterate matrix once, produce 3 outputs.
 
-        for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            var acc: Float64 = 0
+        Computes y1 = A*x1, y2 = A*x2, y3 = A*x3 with one pass over
+        the CSR structure. Halves memory traffic vs 3 separate spmv.
+        """
+        var vals_span = Span(self.data)
+        var cols_span = Span(self.indices)
+        var x1_span = Span(x1)
+        var x2_span = Span(x2)
+        var x3_span = Span(x3)
+        var y1_span = Span[mut=True](y1)
+        var y2_span = Span[mut=True](y2)
+        var y3_span = Span[mut=True](y3)
+        var rp_ptr = self.indptr.unsafe_ptr()
 
-            var p = row_start
-            while p + width <= row_end:
+        @parameter
+        def process_row(i: Int):
+            var r_start = rp_ptr[i]
+            var r_end = rp_ptr[i + 1]
+            var nnz_count = r_end - r_start
+            if nnz_count == 0:
+                y1_span[i] = 0
+                y2_span[i] = 0
+                y3_span[i] = 0
+                return
+            var row_vals = vals_span[r_start:r_end]
+            var row_cols = cols_span[r_start:r_end]
+            var dot1: Float64 = 0
+            var dot2: Float64 = 0
+            var dot3: Float64 = 0
+
+            def process_nnz[
+                width: Int
+            ](p_offset: Int) {
+                mut dot1,
+                mut dot2,
+                mut dot3,
+                row_vals,
+                row_cols,
+                x1_span,
+                x2_span,
+                x3_span,
+            }:
                 var vals = SIMD[DType.float64, width]()
-                var x_vals = SIMD[DType.float64, width]()
+                var xv1 = SIMD[DType.float64, width]()
+                var xv2 = SIMD[DType.float64, width]()
+                var xv3 = SIMD[DType.float64, width]()
                 for k in range(width):
-                    vals[k] = self.data[p + k]
-                    x_vals[k] = x[self.indices[p + k]]
-                acc += (vals * x_vals).reduce_add()
-                p += width
+                    vals[k] = row_vals[p_offset + k]
+                    var col = row_cols[p_offset + k]
+                    xv1[k] = x1_span[col]
+                    xv2[k] = x2_span[col]
+                    xv3[k] = x3_span[col]
+                var v = vals
+                dot1 += (v * xv1).reduce_add()
+                dot2 += (v * xv2).reduce_add()
+                dot3 += (v * xv3).reduce_add()
 
-            while p < row_end:
-                acc += self.data[p] * x[self.indices[p]]
-                p += 1
+            vectorize[SIMD_W](nnz_count, process_nnz)
+            y1_span[i] = dot1
+            y2_span[i] = dot2
+            y3_span[i] = dot3
 
-            y[i] = acc
+        for _i in range(self.nrows):
+            process_row(_i)
 
-    def spmv_triple_fixed(
+    def spmv_triple(
         self,
         x1: FixedSizeVector,
         x2: FixedSizeVector,
@@ -185,75 +248,146 @@ struct CSRMatrix(Movable, Writable):
         mut y2: FixedSizeVector,
         mut y3: FixedSizeVector,
     ):
-        """Fused triple SpMV: iterate matrix once, produce 3 outputs.
-
-        Computes y1 = A*x1, y2 = A*x2, y3 = A*x3 with one pass over
-        the CSR structure. Halves memory traffic vs 3 separate spmv_fixed.
-        """
         y1.zero_out()
         y2.zero_out()
         y3.zero_out()
+        var vals_span = Span(self.data)
+        var cols_span = Span(self.indices)
+        var x1_ptr = x1.ptr()
+        var x2_ptr = x2.ptr()
+        var x3_ptr = x3.ptr()
+        var y1_ptr = y1.ptr()
+        var y2_ptr = y2.ptr()
+        var y3_ptr = y3.ptr()
+        var rp_ptr = self.indptr.unsafe_ptr()
 
-        for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            var acc1: Float64 = 0
-            var acc2: Float64 = 0
-            var acc3: Float64 = 0
+        @parameter
+        def process_row(i: Int):
+            var r_start = rp_ptr[i]
+            var r_end = rp_ptr[i + 1]
+            var nnz_count = r_end - r_start
+            if nnz_count == 0:
+                y1_ptr[i] = 0
+                y2_ptr[i] = 0
+                y3_ptr[i] = 0
+                return
+            var row_vals = vals_span[r_start:r_end]
+            var row_cols = cols_span[r_start:r_end]
+            var dot1: Float64 = 0
+            var dot2: Float64 = 0
+            var dot3: Float64 = 0
 
-            for p in range(row_start, row_end):
-                var j = self.indices[p]
-                var a = self.data[p]
-                acc1 += a * x1[j]
-                acc2 += a * x2[j]
-                acc3 += a * x3[j]
+            def process_nnz[
+                width: Int
+            ](p_offset: Int) {
+                mut dot1,
+                mut dot2,
+                mut dot3,
+                row_vals,
+                row_cols,
+                x1_ptr,
+                x2_ptr,
+                x3_ptr,
+            }:
+                var vals = SIMD[DType.float64, width]()
+                var xv1 = SIMD[DType.float64, width]()
+                var xv2 = SIMD[DType.float64, width]()
+                var xv3 = SIMD[DType.float64, width]()
+                for k in range(width):
+                    vals[k] = row_vals[p_offset + k]
+                    var col = row_cols[p_offset + k]
+                    xv1[k] = x1_ptr[col]
+                    xv2[k] = x2_ptr[col]
+                    xv3[k] = x3_ptr[col]
+                var v = vals
+                dot1 += (v * xv1).reduce_add()
+                dot2 += (v * xv2).reduce_add()
+                dot3 += (v * xv3).reduce_add()
 
-            y1[i] = acc1
-            y2[i] = acc2
-            y3[i] = acc3
+            vectorize[SIMD_W](nnz_count, process_nnz)
+            y1_ptr[i] = dot1
+            y2_ptr[i] = dot2
+            y3_ptr[i] = dot3
 
-    def spmv_addassign_fixed(self, x: FixedSizeVector, mut y: FixedSizeVector):
-        """Incremental SpMV: y += A*x (no zero-out, add to existing y)."""
-        for i in range(self.nrows):
-            var row_start = self.indptr[i]
-            var row_end = self.indptr[i + 1]
-            var acc: Float64 = 0
-
-            for p in range(row_start, row_end):
-                acc += self.data[p] * x[self.indices[p]]
-
-            y[i] = y[i] + acc
+        for _i in range(self.nrows):
+            process_row(_i)
 
     def transpose(self) -> Self:
         var nnz_val = self._nnz
         if nnz_val == 0:
             return Self(self.ncols, self.nrows)
 
-        var col_count = alloc[Int](self.ncols)
-        for j in range(self.ncols):
+        var ncols = self.ncols
+        var nrows = self.nrows
+        var cols_span = Span(self.indices)
+        var data_span = Span(self.data)
+        var rp_ptr = self.indptr.unsafe_ptr()
+
+        var col_count = alloc[Int](ncols)
+        for j in range(ncols):
             col_count[j] = 0
         for p in range(nnz_val):
-            col_count[self.indices[p]] += 1
+            col_count[cols_span[p]] += 1
 
-        var result = Self(self.ncols, self.nrows, nnz_val)
+        var result = Self(ncols, nrows, nnz_val)
         result.indptr[0] = 0
-        for j in range(self.ncols):
+        for j in range(ncols):
             result.indptr[j + 1] = result.indptr[j] + col_count[j]
+            col_count[j] = result.indptr[j]
 
-        var pos = alloc[Int](self.ncols)
-        for j in range(self.ncols):
-            pos[j] = result.indptr[j]
+        var r_data_ptr = result.data.unsafe_ptr()
+        var r_idx_ptr = result.indices.unsafe_ptr()
 
-        for i in range(self.nrows):
-            for p in range(self.indptr[i], self.indptr[i + 1]):
-                var j = self.indices[p]
-                var dest = pos[j]
-                result.indices[dest] = i
-                result.data[dest] = self.data[p]
-                pos[j] = dest + 1
+        for i in range(nrows):
+            var r_start = rp_ptr[i]
+            var r_end = rp_ptr[i + 1]
+            for p in range(r_start, r_end):
+                var j = cols_span[p]
+                var dest = col_count[j]
+                r_idx_ptr[dest] = i
+                r_data_ptr[dest] = data_span[p]
+                col_count[j] = dest + 1
 
         col_count.free()
-        pos.free()
+        return result^
+
+    def to_csc(self) -> CSCMatrix:
+        var nnz_val = self._nnz
+        if nnz_val == 0:
+            return CSCMatrix(self.nrows, self.ncols)
+
+        var ncols = self.ncols
+        var nrows = self.nrows
+        var cols_span = Span(self.indices)
+        var data_span = Span(self.data)
+        var rp_ptr = self.indptr.unsafe_ptr()
+
+        var col_count = alloc[Int](ncols)
+        for j in range(ncols):
+            col_count[j] = 0
+        for p in range(nnz_val):
+            col_count[cols_span[p]] += 1
+
+        var result = CSCMatrix(nrows, ncols, nnz_val)
+        result.colptr[0] = 0
+        for j in range(ncols):
+            result.colptr[j + 1] = result.colptr[j] + col_count[j]
+            col_count[j] = result.colptr[j]
+
+        var r_data_ptr = result.data.unsafe_ptr()
+        var r_idx_ptr = result.indices.unsafe_ptr()
+
+        for i in range(nrows):
+            var r_start = rp_ptr[i]
+            var r_end = rp_ptr[i + 1]
+            for p in range(r_start, r_end):
+                var j = cols_span[p]
+                var dest = col_count[j]
+                r_idx_ptr[dest] = i
+                r_data_ptr[dest] = data_span[p]
+                col_count[j] = dest + 1
+
+        col_count.free()
         return result^
 
     def to_dense(self) -> List[List[Float64]]:

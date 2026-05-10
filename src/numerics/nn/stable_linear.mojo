@@ -3,12 +3,6 @@ from numerics.utils import min_f64, zeros, zeros_mat
 from std.math import sqrt
 
 
-
-
-
-
-
-
 def _matmul_vec(
     W: List[List[Float64]], x: List[Float64], b: List[Float64]
 ) -> List[Float64]:

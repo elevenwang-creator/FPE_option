@@ -128,9 +128,19 @@ struct FixedSizeVector(Copyable, Movable, Writable):
 
     @always_inline
     def lin_comb_3(
-        mut self, c1: Float64, v1: Self, c2: Float64, v2: Self, c3: Float64, v3: Self
+        mut self,
+        c1: Float64,
+        v1: Self,
+        c2: Float64,
+        v2: Self,
+        c3: Float64,
+        v3: Self,
     ):
-        assert self._len == v1._len and self._len == v2._len and self._len == v3._len
+        assert (
+            self._len == v1._len
+            and self._len == v2._len
+            and self._len == v3._len
+        )
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
@@ -193,21 +203,40 @@ struct FixedSizeVector(Copyable, Movable, Writable):
 
     @always_inline
     def update_scal(mut self, atol: Float64, rtol: Float64, y: Self):
-        assert self._len == y._len
-        var safe_atol = max_f64(atol, 1e-300)
-        var safe_rtol = max_f64(rtol, 1e-300)
-        comptime width = SIMD_WIDTH
-        var i = 0
-        while i + width <= self._len:
-            var sy = (y._ptr + i).load[width=width]()
-            var sa = SIMD[DType.float64, width](safe_atol)
-            var sr = SIMD[DType.float64, width](safe_rtol)
-            var result = sa + sr * abs(sy)
-            (self._ptr + i).store[width=width](result)
-            i += width
-        while i < self._len:
-            self._ptr[i] = safe_atol + safe_rtol * abs_f64(y._ptr[i])
-            i += 1
+            assert self._len == y._len
+            var safe_atol = max_f64(atol, 1e-300)
+            var safe_rtol = max_f64(rtol, 1e-300)
+            comptime width = SIMD_WIDTH
+            var i = 0
+            while i + width <= self._len:
+                    var sy = (y._ptr + i).load[width=width]()
+                    var sa = SIMD[DType.float64, width](safe_atol)
+                    var sr = SIMD[DType.float64, width](safe_rtol)
+                    var result = sa + sr * abs(sy)
+                    (self._ptr + i).store[width=width](result)
+                    i += width
+            while i < self._len:
+                    self._ptr[i] = safe_atol + safe_rtol * abs_f64(y._ptr[i])
+                    i += 1
+
+    @always_inline
+    def update_scal_max(mut self, atol: Float64, rtol: Float64, y1: Self, y2: Self):
+            assert self._len == y1._len and self._len == y2._len
+            var safe_atol = max_f64(atol, 1e-300)
+            var safe_rtol = max_f64(rtol, 1e-300)
+            comptime width = SIMD_WIDTH
+            var i = 0
+            while i + width <= self._len:
+                    var sy1 = (y1._ptr + i).load[width=width]()
+                    var sy2 = (y2._ptr + i).load[width=width]()
+                    var sa = SIMD[DType.float64, width](safe_atol)
+                    var sr = SIMD[DType.float64, width](safe_rtol)
+                    var result = sa + sr * max(abs(sy1), abs(sy2))
+                    (self._ptr + i).store[width=width](result)
+                    i += width
+            while i < self._len:
+                    self._ptr[i] = safe_atol + safe_rtol * max_f64(abs_f64(y1._ptr[i]), abs_f64(y2._ptr[i]))
+                    i += 1
 
     @always_inline
     def sub_scaled(mut self, a: Self, alpha: Float64, b: Self):

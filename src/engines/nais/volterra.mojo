@@ -29,14 +29,6 @@ def _complex_multiply(a: List[Float64], b: List[Float64]) -> List[Float64]:
     return out^
 
 
-
-
-
-
-
-
-
-
 @fieldwise_init
 struct VolterraProcess[B: Int]:
     """Fractional Brownian motion via hybrid scheme (direct convolution)."""
@@ -105,9 +97,9 @@ struct VolterraProcess[B: Int]:
         for k in range(1, self.N):
             var kp1 = Float64(k + 1)
             var kp2 = Float64(k + 2)
-            var y = (
-                pow_pos(kp2, alpha + 1.0) - pow_pos(kp1, alpha + 1.0)
-            ) / (alpha + 1.0)
+            var y = (pow_pos(kp2, alpha + 1.0) - pow_pos(kp1, alpha + 1.0)) / (
+                alpha + 1.0
+            )
             var b = pow_pos(y, 1.0 / alpha)
             kernel.append(pow_pos(b * dt, alpha) * sigma)
 

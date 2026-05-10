@@ -1,162 +1,203 @@
+"""FPE domain: knots, quadrature, B-spline basis caching.
+
+FPECachedBasis stores only 1D factor matrices + weights.
+Kronecker-structured operations use kron_spmv / kron_T_spmv
+instead of building 2.1M-row kron matrices.
+"""
+
 from numerics.bspline.knots import GenerateKnots, GaussLegendre
-from engines.fpe.heston_params import HestonParams
 from numerics.bspline.basis import BSplineBasis
-from numerics.bspline.recombination import RecombinationBasis
+from numerics.bspline.recombination import RecombinationBasis, recomb_eval_all, recomb_first_derivative_all
 from numerics.bspline.tensor_product import TensorProductBasis
-from numerics.utils import linspace
+from engines.fpe.heston_params import HestonParams
 from sparse.csr import CSRMatrix
 from sparse.diag import DiagMatrix
 from sparse.kron import kron
 
 
-def _sort_unique(x: List[Float64]) -> List[Float64]:
-    var n = len(x)
-    if n == 0:
-        return []
-    var arr = x.copy()
-    for i in range(n):
-        for j in range(i + 1, n):
-            if arr[i] > arr[j]:
-                var tmp = arr[i]
-                arr[i] = arr[j]
-                arr[j] = tmp
-    var out: List[Float64] = []
-    out.append(arr[0])
-    for i in range(1, n):
-        if arr[i] > out[len(out) - 1] + 1e-9:
-            out.append(arr[i])
-    return out^
+def _grid_create(
+    center: Float64,
+    std: Float64,
+    boundary: Tuple[Float64, Float64],
+    num_insert: Int,
+    is_v: Bool,
+) -> List[Float64]:
+    var lo = boundary[0]
+    var hi = boundary[1]
+    var lb_interm = center - 5.0 * std
+    var ub_interm = center + 5.0 * std
+    var left_trail = Int(Float64(num_insert) * 0.2)
+    var num_interm = Int(Float64(num_insert) * 0.3)
+    var right_trail = Int(Float64(num_insert) * 0.5)
+    if left_trail < 1:
+        left_trail = 1
+    if num_interm < 3:
+        num_interm = 3
+    if right_trail < 1:
+        right_trail = 1
+
+    var grid: List[Float64] = []
+
+    # Coarse lower tail: lo to lb_interm
+    for i in range(left_trail):
+        grid.append(lo + Float64(i) / Float64(left_trail - 1) * (lb_interm - lo))
+
+    # Approaching mean: lb_interm to center - std/5
+    var n_app = num_interm // 3
+    if n_app < 1:
+        n_app = 1
+    var app_lo = lb_interm
+    var app_hi = center - std / 5.0
+    for i in range(n_app):
+        grid.append(app_lo + Float64(i) / Float64(n_app) * (app_hi - app_lo))
+
+    # Dense near mean: center - std/5 to center + std/5
+    var n_dense = num_interm // 3
+    if n_dense < 2:
+        n_dense = 2
+    var dense_lo = center - std / 5.0
+    var dense_hi = center + std / 5.0
+    for i in range(n_dense):
+        grid.append(dense_lo + Float64(i) / Float64(n_dense - 1) * (dense_hi - dense_lo))
+
+    # Ensure center is included
+    grid.append(center)
+
+    # Leaving mean: center + std/5 to ub_interm
+    var n_leave = num_interm // 3
+    if n_leave < 1:
+        n_leave = 1
+    var leave_lo = center + std / 5.0
+    var leave_hi = ub_interm
+    for i in range(n_leave):
+        grid.append(leave_lo + Float64(i) / Float64(n_leave) * (leave_hi - leave_lo))
+
+    # Coarse upper tail: ub_interm to hi
+    for i in range(right_trail):
+        grid.append(ub_interm + Float64(i) / Float64(right_trail - 1) * (hi - ub_interm))
+
+    # Extra points near upper boundary
+    var n_up = Int(Float64(num_insert) * 0.1)
+    if n_up < 2:
+        n_up = 2
+    for i in range(n_up):
+        grid.append(hi - 0.1 + Float64(i) / Float64(n_up - 1) * 0.1)
+
+    # For v: add extra points near v=0
+    if is_v:
+        var n_zero = Int(Float64(num_insert) * 0.2)
+        if n_zero < 2:
+            n_zero = 2
+        for i in range(n_zero):
+            grid.append(Float64(i) / Float64(n_zero - 1) * 0.01)
+
+    return _sort_unique(grid)^
 
 
 def _normalize_list(x: List[Float64]) -> List[Float64]:
-    var gen = GenerateKnots(1, 1)
-    return gen.normalize(x)
+    if len(x) < 2:
+        return x.copy()
+    var lo = x[0]
+    var hi = x[len(x) - 1]
+    var span = hi - lo
+    if span == 0.0:
+        return x.copy()
+    var result: List[Float64] = []
+    for i in range(len(x)):
+        result.append((x[i] - lo) / span)
+    return result^
 
 
-def _grid_create(
-    mean: Float64, std_dev: Float64, bound: Tuple[Float64, Float64],
-    num_insert: Int = 251, is_v: Bool = False,
+def _sort_unique(mut x: List[Float64]) -> List[Float64]:
+    var n = len(x)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if x[j] < x[i]:
+                var tmp = x[i]
+                x[i] = x[j]
+                x[j] = tmp
+    var result: List[Float64] = []
+    if n == 0:
+        return result^
+    result.append(x[0])
+    for i in range(1, n):
+        if x[i] != result[len(result) - 1]:
+            result.append(x[i])
+    return result^
+
+
+def _compute_quad_points(
+    grid: List[Float64], num_gauss: Int
 ) -> List[Float64]:
-    var lb = bound[0]
-    var ub = bound[1]
-    var lb_interm = mean - 5.0 * std_dev
-    var ub_interm = mean + 5.0 * std_dev
-    var num_interm = num_insert * 30 // 100
-    var right_trail = num_insert * 50 // 100
-    var left_trail = num_insert * 20 // 100
-
-    var x: List[Float64] = []
-    var seg1 = linspace(lb, lb_interm, left_trail)
-    for i in range(len(seg1)):
-        x.append(seg1[i])
-    var seg2 = linspace(lb_interm, mean - std_dev / 5.0, num_interm // 3)
-    for i in range(len(seg2)):
-        x.append(seg2[i])
-    var seg3 = linspace(
-        mean - std_dev / 5.0, mean + std_dev / 5.0, num_interm // 3
-    )
-    for i in range(len(seg3)):
-        x.append(seg3[i])
-    x.append(mean)
-    var seg4 = linspace(mean + std_dev / 5.0, ub_interm, num_interm // 3)
-    for i in range(len(seg4)):
-        x.append(seg4[i])
-    var seg5 = linspace(ub_interm, ub, right_trail)
-    for i in range(len(seg5)):
-        x.append(seg5[i])
-    var seg6 = linspace(ub - 0.1, ub, num_insert * 10 // 100)
-    for i in range(len(seg6)):
-        x.append(seg6[i])
-
-    if is_v:
-        var zero_seg = linspace(0.0, 0.01, num_insert * 20 // 100)
-        var new_x: List[Float64] = []
-        for i in range(len(zero_seg)):
-            new_x.append(zero_seg[i])
-        for i in range(len(x)):
-            new_x.append(x[i])
-        x = new_x^
-
-    return _sort_unique(x)^
-
-
-def _compute_quad_points(grid: List[Float64], num_gauss: Int) -> List[Float64]:
-    var unique: List[Float64] = []
-    if len(grid) > 0:
-        unique.append(grid[0])
-        for i in range(1, len(grid)):
-            if grid[i] > unique[len(unique) - 1] + 1e-9:
-                unique.append(grid[i])
-
-    var n_intervals = len(unique) - 1
+    var result: List[Float64] = []
     var gl = GaussLegendre(num_gauss)
-
-    var points: List[Float64] = []
-
-    for i in range(n_intervals):
-        var a = unique[i]
-        var b = unique[i + 1]
+    for i in range(len(grid) - 1):
+        var a = grid[i]
+        var b = grid[i + 1]
         if b <= a:
             continue
-        var half_span = 0.5 * (b - a)
-        var mid = 0.5 * (a + b)
-
-        points.append(a)
+        var mid = (a + b) * 0.5
+        var half_span = (b - a) * 0.5
+        result.append(a)
         for j in range(gl.order):
-            points.append(half_span * gl.nodes[j] + mid)
+            result.append(mid + half_span * gl.nodes[j])
+    return result^
 
-    return points^
 
-
-def _compute_quad_weights(grid: List[Float64], num_gauss: Int) -> List[Float64]:
-    var unique: List[Float64] = []
-    if len(grid) > 0:
-        unique.append(grid[0])
-        for i in range(1, len(grid)):
-            if grid[i] > unique[len(unique) - 1] + 1e-9:
-                unique.append(grid[i])
-
-    var n_intervals = len(unique) - 1
+def _compute_quad_weights(
+    grid: List[Float64], num_gauss: Int
+) -> List[Float64]:
+    var result: List[Float64] = []
     var gl = GaussLegendre(num_gauss)
-
-    var weights: List[Float64] = []
-
-    for i in range(n_intervals):
-        var a = unique[i]
-        var b = unique[i + 1]
+    for i in range(len(grid) - 1):
+        var a = grid[i]
+        var b = grid[i + 1]
         if b <= a:
             continue
-        var half_span = 0.5 * (b - a)
-
-        weights.append(0.0)
+        var half_span = (b - a) * 0.5
+        result.append(0.0)
         for j in range(gl.order):
-            weights.append(half_span * gl.weights[j])
-
-    return weights^
+            result.append(half_span * gl.weights[j])
+    return result^
 
 
 struct FPECachedBasis[degree_s: Int, degree_v: Int](Movable):
-    var basis: TensorProductBasis[Self.degree_s, Self.degree_v]
-    var weights: CSRMatrix
-    var two_basis: CSRMatrix
-    var s_partial: CSRMatrix
-    var v_partial: CSRMatrix
-    var two_basis_T: CSRMatrix
+    var Bs: CSRMatrix
+    var Bv: CSRMatrix
+    var dBs: CSRMatrix
+    var dBv: CSRMatrix
+    var Bs_T: CSRMatrix
+    var Bv_T: CSRMatrix
+    var dBs_T: CSRMatrix
+    var dBv_T: CSRMatrix
     var n_s: Int
     var n_v: Int
+    var s_points_phys: List[Float64]
+    var v_points_phys: List[Float64]
+    var jacobian: Float64
+    var s_weights: List[Float64]
+    var v_weights: List[Float64]
 
     def __init__(
         out self,
-        var domain: FPEDomain[Self.degree_s, Self.degree_v],
+        domain: FPEDomain[Self.degree_s, Self.degree_v],
     ):
-        self.basis = domain.build_basis()
-        self.weights = domain.integ_weights()
-        self.two_basis = self.basis.eval_tensor(domain.s_points, domain.v_points)
-        self.s_partial = self.basis.partial_s(domain.s_points, domain.v_points)
-        self.v_partial = self.basis.partial_v(domain.s_points, domain.v_points)
-        self.two_basis_T = self.two_basis.transpose()
+        var basis = domain.build_basis()
+        self.Bs = recomb_eval_all(basis.basis_s, domain.s_points)
+        self.Bv = recomb_eval_all(basis.basis_v, domain.v_points)
+        self.dBs = recomb_first_derivative_all(basis.basis_s, domain.s_points)
+        self.dBv = recomb_first_derivative_all(basis.basis_v, domain.v_points)
+        self.Bs_T = self.Bs.transpose()
+        self.Bv_T = self.Bv.transpose()
+        self.dBs_T = self.dBs.transpose()
+        self.dBv_T = self.dBv.transpose()
         self.n_s = len(domain.s_points)
         self.n_v = len(domain.v_points)
+        self.s_points_phys = domain.s_points_phys.copy()
+        self.v_points_phys = domain.v_points_phys.copy()
+        self.jacobian = domain.jacobian_factor()
+        self.s_weights = domain.s_weights.copy()
+        self.v_weights = domain.v_weights.copy()
 
 
 struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
@@ -184,12 +225,13 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         self.s_max = params.S_max
         self.v_min = params.V_min
         self.v_max = params.V_max
+        var center_s = (params.S0 - self.s_min) / (self.s_max - self.s_min)
 
         var s_gen = GenerateKnots(
             n=n_s,
             degree=Self.degree_s,
             method="non-uniform",
-            center=0.2,
+            center=center_s,
             boundary=(self.s_min, self.s_max),
             mean=params.S0,
             std=0.1,
@@ -200,7 +242,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
             n=n_v,
             degree=Self.degree_v,
             method="non-uniform",
-            center=0.2,
+            center=params.V0,
             boundary=(self.v_min, self.v_max),
             mean=params.V0,
             std=0.001,
@@ -260,4 +302,4 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         )
 
     def cached_basis(self) -> FPECachedBasis[Self.degree_s, Self.degree_v]:
-        return FPECachedBasis[Self.degree_s, Self.degree_v](self)
+        return FPECachedBasis[Self.degree_s, Self.degree_v](self)^

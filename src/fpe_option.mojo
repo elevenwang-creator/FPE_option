@@ -34,7 +34,9 @@ def _build_pdf_grid(
     atol: Float64,
 ) raises -> PDFGrid:
     var domain = FPEDomain[3, 3](heston, n_s=n_s, n_v=n_v)
-    var solver = FPESolver[1](rtol=rtol, atol=atol, max_step=0.1, first_step=0.0)
+    var solver = FPESolver[1](
+        rtol=rtol, atol=atol, max_step=0.1, first_step=0.0
+    )
     var t_eval: List[Float64] = [0.0, heston.T]
     var sol = solver.solve(domain, heston, t_eval)
 

@@ -1,14 +1,14 @@
 """Unified FPE solver with comptime CPU/GPU dispatch.
 
 Key improvements over original:
-- Uses sparse CSRMatrix spmv_into for ODE RHS (O(nnz) vs O(n^2))
+- Uses sparse CSRMatrix spmv for ODE RHS (O(nnz) vs O(n^2))
 - Uses shared linalg.lu_solve (deduplicates LU code)
 - Uses proper RadauIIA solver (order 5 vs order 1 BackwardEuler)
 - D-scaling (diagonal preconditioning) for well-conditioned ODE system
 - Retains comptime batch_size dispatch architecture
 """
 
-from engines.fpe.domain import FPEDomain
+from engines.fpe.domain import FPEDomain, FPECachedBasis
 from engines.fpe.galerkin import GalerkinAssembler
 from engines.fpe.heston_params import HestonParams
 from engines.fpe.initial_cond import InitialCondition
@@ -18,8 +18,7 @@ from numerics.ode.types import ODESystem
 from numerics.ode.radau import LinearODESystem
 from numerics.utils import zeros, copy_vec, copy_mat
 from sparse.csr import CSRMatrix
-from sparse.ops import diag_scale
-from std.algorithm import parallelize
+from sparse.diag_scale import diag_scale
 from std.math import sqrt
 from std.sys import has_accelerator
 
@@ -41,11 +40,9 @@ struct FPESparseSystem(ODESystem):
     def __init__(out self, var neg_M_inv_K: CSRMatrix):
         self.neg_M_inv_K = neg_M_inv_K^
 
-    def rhs(
-        self, t: Float64, y: List[Float64], mut dydt: List[Float64]
-    ) raises:
+    def rhs(self, t: Float64, y: List[Float64], mut dydt: List[Float64]) raises:
         _ = t
-        self.neg_M_inv_K.spmv_into(y, dydt)
+        self.neg_M_inv_K.spmv(y, dydt)
 
     def dim(self) -> Int:
         return self.neg_M_inv_K.nrows
@@ -72,9 +69,7 @@ struct FPEDenseSystem(ODESystem):
     def __init__(out self, var A: List[List[Float64]]):
         self.A = A^
 
-    def rhs(
-        self, t: Float64, y: List[Float64], mut dydt: List[Float64]
-    ) raises:
+    def rhs(self, t: Float64, y: List[Float64], mut dydt: List[Float64]) raises:
         _ = t
         var n = len(self.A)
         for i in range(n):
@@ -113,6 +108,21 @@ struct FPESolver[B: Int]:
             else:
                 return self._solve_cpu_parallel(M^, K^, q0, t_eval)
 
+    def solve_with_matrices(
+        self,
+        var M: CSRMatrix,
+        var K: CSRMatrix,
+        q0: List[Float64],
+        t_eval: List[Float64],
+    ) raises -> List[List[Float64]]:
+        comptime if Self.B == 1:
+            return self._integrate_cpu_sparse(M^, K^, q0, t_eval)
+        else:
+            comptime if has_accelerator():
+                return self._solve_gpu_batch(M^, K^, q0, t_eval)
+            else:
+                return self._solve_cpu_parallel(M^, K^, q0, t_eval)
+
     def _integrate_cpu_sparse(
         self,
         var M: CSRMatrix,
@@ -140,6 +150,33 @@ struct FPESolver[B: Int]:
 
         var M_s = diag_scale(M, Dinv, Dinv)
         var K_s = diag_scale(K, Dinv, Dinv)
+
+        var d_min = 1e300
+        var d_max = 0.0
+        for i in range(n):
+            if D[i] < d_min:
+                d_min = D[i]
+            if D[i] > d_max:
+                d_max = D[i]
+        print(
+            "     D-SCALING: D_min=",
+            d_min,
+            " D_max=",
+            d_max,
+            " ratio=",
+            d_max / d_min,
+        )
+        var ms_diag_min = 1e300
+        var ms_diag_max = 0.0
+        for i in range(n):
+            for p in range(M_s.indptr[i], M_s.indptr[i + 1]):
+                if M_s.indices[p] == i:
+                    if M_s.data[p] < ms_diag_min:
+                        ms_diag_min = M_s.data[p]
+                    if M_s.data[p] > ms_diag_max:
+                        ms_diag_max = M_s.data[p]
+                    break
+        print("     M_s diag: min=", ms_diag_min, " max=", ms_diag_max)
 
         var q0_s = zeros(n)
         for i in range(n):
@@ -171,6 +208,7 @@ struct FPESolver[B: Int]:
         t_eval: List[Float64],
     ) raises -> List[List[Float64]]:
         from engines.fpe.gpu.executor import GPUFullChainExecutor
+
         var executor = GPUFullChainExecutor[Self.B](n_s=20, n_v=20)
         executor.execute_batch_pricing()
 

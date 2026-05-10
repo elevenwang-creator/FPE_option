@@ -5,8 +5,6 @@ from numerics.nn.autograd import Tape
 from std.math import sqrt
 
 
-
-
 @fieldwise_init
 struct FBSDEParams(Copyable, Movable):
     var Xi: List[Float64]
@@ -111,7 +109,9 @@ struct FBSDELoss[B: Int]:
 
             # x0 = Xi
             var x0_idx = Xi_idx.copy()
-            var out0 = net.forward_tracked(t[0], self._idx_to_values(tape, x0_idx), tape)
+            var out0 = net.forward_tracked(
+                t[0], self._idx_to_values(tape, x0_idx), tape
+            )
             var y0_idx = out0[0]
             var phi0_idx = out0[1].copy()
 
@@ -121,11 +121,17 @@ struct FBSDELoss[B: Int]:
                 var dB = BM[m][n + 1] - BM[m][n]
                 var var0 = max_f64(Var[m][n], 1e-12)
 
-                var z = sqrt((1.0 - self.pho * self.pho) * var0) * self._get_value(tape, phi0_idx[0])
-                var z_tilde = self.pho * sqrt(var0) * self._get_value(tape, phi0_idx[0]) + self._get_value(tape, phi0_idx[0])
+                var z = sqrt(
+                    (1.0 - self.pho * self.pho) * var0
+                ) * self._get_value(tape, phi0_idx[0])
+                var z_tilde = self.pho * sqrt(var0) * self._get_value(
+                    tape, phi0_idx[0]
+                ) + self._get_value(tape, phi0_idx[0])
 
                 var y0_val = self._get_value(tape, y0_idx)
-                var y1_tilde = y0_val + self.r * y0_val * dt + z * dB + z_tilde * dW
+                var y1_tilde = (
+                    y0_val + self.r * y0_val * dt + z * dB + z_tilde * dW
+                )
 
                 var x1: List[Float64] = [W[m][n + 1]]
                 if len(Xi) > 1:
@@ -151,7 +157,9 @@ struct FBSDELoss[B: Int]:
 
         # Divide by M
         var M_val = tape.record_value(Float64(M))
-        loss_idx = tape.record_mul(loss_idx, tape.record_value(1.0 / Float64(M)))
+        loss_idx = tape.record_mul(
+            loss_idx, tape.record_value(1.0 / Float64(M))
+        )
         return loss_idx
 
     def _get_value(self, tape: Tape, idx: Int) -> Float64:

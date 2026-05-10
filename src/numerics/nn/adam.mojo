@@ -3,8 +3,6 @@ from numerics.utils import pow_pos
 from std.math import exp, log
 
 
-
-
 @fieldwise_init
 struct Adam:
     var lr: Float64
@@ -30,7 +28,9 @@ struct Adam:
         self.v = []
         self.t = 0
 
-    def step(mut self, params: List[Float64], grads: List[Float64]) -> List[Float64]:
+    def step(
+        mut self, params: List[Float64], grads: List[Float64]
+    ) -> List[Float64]:
         """Adam update step."""
         if len(self.m) != len(params):
             self.m = []
@@ -51,7 +51,10 @@ struct Adam:
         var updated = params.copy()
         for i in range(len(params)):
             self.m[i] = self.beta1 * self.m[i] + (1.0 - self.beta1) * grads[i]
-            self.v[i] = self.beta2 * self.v[i] + (1.0 - self.beta2) * grads[i] * grads[i]
+            self.v[i] = (
+                self.beta2 * self.v[i]
+                + (1.0 - self.beta2) * grads[i] * grads[i]
+            )
 
             var m_hat = self.m[i] / bc1
             var v_hat = self.v[i] / bc2

@@ -2,7 +2,12 @@ from numerics.utils import linspace, abs_f64
 
 from engines.nais.fbsde import FBSDEParams, FBSDELoss
 from engines.nais.nais_net import NaisNet
-from engines.nais.utils import _generate_brownian_paths, _flatten_net_params, _unflatten_mat, _unflatten_vec
+from engines.nais.utils import (
+    _generate_brownian_paths,
+    _flatten_net_params,
+    _unflatten_mat,
+    _unflatten_vec,
+)
 from engines.nais.variance import VarianceProcess
 from numerics.nn.adam import Adam
 from numerics.nn.autograd import GradientTape, Tape
@@ -170,6 +175,7 @@ def _apply_gradients(mut net: NaisNet, grads: List[Float64], lr: Float64):
         net.layer6_b[i] = net.layer6_b[i] - lr * grads[idx]
         idx += 1
 
+
 @fieldwise_init
 struct Trainer[B: Int]:
     """Training loop for NAIS-Net."""
@@ -177,7 +183,9 @@ struct Trainer[B: Int]:
     var learning_rate: Float64
     var n_iter: Int
 
-    def train(mut self, mut net: NaisNet, params: FBSDEParams) raises -> List[Float64]:
+    def train(
+        mut self, mut net: NaisNet, params: FBSDEParams
+    ) raises -> List[Float64]:
         """Training loop: forward → loss → gradient → update."""
         var losses: List[Float64] = []
         var epsilon = 1e-5
@@ -189,8 +197,12 @@ struct Trainer[B: Int]:
 
         # Compute variance process
         var var_proc = VarianceProcess[Self.B](
-            T=params.T, N=params.N, D=params.D,
-            H=params.H, eta=params.eta, epsilon_t=params.epsilon_t
+            T=params.T,
+            N=params.N,
+            D=params.D,
+            H=params.H,
+            eta=params.eta,
+            epsilon_t=params.epsilon_t,
         )
         var Var = var_proc.compute(W)
 
@@ -200,7 +212,9 @@ struct Trainer[B: Int]:
 
         for _ in range(self.n_iter):
             # Compute FBSDE loss
-            var loss = fbsde.compute(net, t_grid, W[0], BM[0], Var[0], params.Xi)
+            var loss = fbsde.compute(
+                net, t_grid, W[0], BM[0], Var[0], params.Xi
+            )
 
             # Compute gradients via finite-difference
             var net_params = _flatten_net_params(net)
@@ -218,8 +232,12 @@ struct Trainer[B: Int]:
                 _unflatten_net_params(plus, net_plus)
                 _unflatten_net_params(minus, net_minus)
 
-                var lp = fbsde.compute(net_plus, t_grid, W[0], BM[0], Var[0], params.Xi)
-                var lm = fbsde.compute(net_minus, t_grid, W[0], BM[0], Var[0], params.Xi)
+                var lp = fbsde.compute(
+                    net_plus, t_grid, W[0], BM[0], Var[0], params.Xi
+                )
+                var lm = fbsde.compute(
+                    net_minus, t_grid, W[0], BM[0], Var[0], params.Xi
+                )
                 grads.append((lp - lm) / (2.0 * eps))
 
             # Apply gradient descent

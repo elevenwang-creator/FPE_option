@@ -17,7 +17,12 @@ comptime MY_MAX_N = GPU_MAX_N
 comptime MY_VEC_LAYOUT = GPU_VEC_LAYOUT
 """
 
-from std.sys import has_accelerator, has_apple_gpu_accelerator, has_nvidia_gpu_accelerator, has_amd_gpu_accelerator
+from std.sys import (
+    has_accelerator,
+    has_apple_gpu_accelerator,
+    has_nvidia_gpu_accelerator,
+    has_amd_gpu_accelerator,
+)
 from layout import Layout
 
 

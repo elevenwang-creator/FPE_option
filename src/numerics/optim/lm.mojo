@@ -1,13 +1,15 @@
 from numerics.linalg import lu_solve
 from numerics.utils import abs_f64
 
+
 trait ResidualCallable:
-    def __call__(self, x: List[Float64]) raises -> List[Float64]: ...
+    def __call__(self, x: List[Float64]) raises -> List[Float64]:
+        ...
 
 
 trait JacobianCallable:
-    def __call__(self, x: List[Float64]) raises -> List[List[Float64]]: ...
-
+    def __call__(self, x: List[Float64]) raises -> List[List[Float64]]:
+        ...
 
 
 @fieldwise_init
@@ -39,10 +41,15 @@ struct LevenbergMarquardt:
             var m = len(r)
 
             if len(J) != m:
-                raise Error("LevenbergMarquardt: Jacobian rows must match residual size")
+                raise Error(
+                    "LevenbergMarquardt: Jacobian rows must match residual size"
+                )
             for k in range(m):
                 if len(J[k]) != n:
-                    raise Error("LevenbergMarquardt: Jacobian cols must match parameter size")
+                    raise Error(
+                        "LevenbergMarquardt: Jacobian cols must match parameter"
+                        " size"
+                    )
 
             var JtJ: List[List[Float64]] = []
             for i in range(n):
