@@ -1,6 +1,6 @@
 """Test SparseLU with matrices that require pivot swaps."""
 
-from numerics.sparse_lu import SparseLU
+from numerics.utils.sparse_lu import SparseLU
 from numerics.utils import FixedSizeVector
 from sparse.csc import CSCMatrix
 from sparse.csr import CSRMatrix
@@ -133,6 +133,54 @@ def main() raises:
     print()
 
     var all_pass = ok1 and ok2 and ok3
+    if all_pass:
+        print("=== ALL PIVOT SWAP TESTS PASS ===")
+    else:
+        print("=== SOME TESTS FAILED ===")
+
+    print()
+    print("[Test 4] 64x64 block-pentadiagonal with forced pivots")
+    var n_bp = 64
+    var A_bp_csr = CSRMatrix(n_bp, n_bp, 0)
+    var indptr_bp: List[Int] = [0]
+    var indices_bp: List[Int] = []
+    var data_bp: List[Float64] = []
+    for i in range(n_bp):
+        if i > 1:
+            indices_bp.append(i - 2)
+            data_bp.append(-0.25)
+        if i > 0:
+            indices_bp.append(i - 1)
+            data_bp.append(-0.5)
+        indices_bp.append(i)
+        data_bp.append(4.0 + Float64(i % 7))
+        if i < n_bp - 1:
+            indices_bp.append(i + 1)
+            data_bp.append(-0.5)
+        if i < n_bp - 2:
+            indices_bp.append(i + 2)
+            data_bp.append(-0.25)
+        indptr_bp.append(len(indices_bp))
+    A_bp_csr.indptr = indptr_bp^
+    A_bp_csr.indices = indices_bp^
+    A_bp_csr.data = data_bp^
+    A_bp_csr._nnz = len(A_bp_csr.data)
+    var A_bp = A_bp_csr.to_csc()
+    var lu_bp = SparseLU(n_bp)
+    lu_bp.factorize(A_bp)
+    var b_bp: List[Float64] = []
+    for i in range(n_bp):
+        b_bp.append(Float64(i + 1))
+    var x_bp = lu_bp.solve(b_bp)
+    var Ax_bp = A_bp_csr.spmv_new(x_bp)
+    var res_bp = 0.0
+    for i in range(n_bp):
+        res_bp = res_bp + abs(Ax_bp[i] - b_bp[i])
+    print(" ||Ax - b|| = ", res_bp)
+    var ok4 = res_bp < 1e-8
+    print(" PASS" if ok4 else " FAIL")
+
+    all_pass = all_pass and ok4
     if all_pass:
         print("=== ALL PIVOT SWAP TESTS PASS ===")
     else:

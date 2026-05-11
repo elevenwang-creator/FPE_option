@@ -9,6 +9,7 @@ Optimized implementation using:
 - @always_inline on all hot-path methods
 - memcpy for zero-copy vector transfer
 - Sparse-aware left-looking: iterate only nonzero columns in workspace
+- Deferred pivot permutation via row-index inverted index (Optimization B)
 
 Accepts CSCMatrix input for efficient column-wise access.
 Use CSRMatrix.to_csc() to convert CSR matrices before factorizing.
@@ -45,6 +46,7 @@ struct SparseLU(Movable):
     var L_col_nnz: List[Int]
     var U_col_start: List[Int]
     var U_col_nnz: List[Int]
+    var row_L_cols: List[List[Int]]
 
     def __init__(out self, n: Int):
         self.n = n
@@ -64,6 +66,7 @@ struct SparseLU(Movable):
         self.L_col_nnz = List[Int]()
         self.U_col_start = List[Int]()
         self.U_col_nnz = List[Int]()
+        self.row_L_cols = List[List[Int]]()
 
         for _ in range(n + 1):
             self.Lp.append(0)
@@ -76,6 +79,8 @@ struct SparseLU(Movable):
             self.L_col_nnz.append(0)
             self.U_col_start.append(0)
             self.U_col_nnz.append(0)
+            var inner = List[Int]()
+            self.row_L_cols.append(inner^)
 
     @always_inline
     def _sort_w_nz(mut self):
@@ -124,6 +129,7 @@ struct SparseLU(Movable):
             self.L_col_nnz[i] = 0
             self.U_col_start[i] = 0
             self.U_col_nnz[i] = 0
+            self.row_L_cols[i].clear()
 
         self.W.zero_out()
 
@@ -240,24 +246,66 @@ struct SparseLU(Movable):
             if piv_row != k:
                 swap(W_ptr[k], W_ptr[piv_row])
 
-            for j in range(k):
-                var l_start = self.L_col_start[j]
-                var l_end = l_start + self.L_col_nnz[j]
-                var l_k_idx: Int = -1
-                var l_piv_idx: Int = -1
-                for p in range(l_start, l_end):
-                    if self.Lj[p] == k:
-                        l_k_idx = p
-                    if self.Lj[p] == piv_row:
-                        l_piv_idx = p
-                if l_k_idx >= 0 and l_piv_idx >= 0:
-                    var tmp = self.Lx[l_k_idx]
-                    self.Lx[l_k_idx] = self.Lx[l_piv_idx]
-                    self.Lx[l_piv_idx] = tmp
-                elif l_k_idx >= 0:
-                    self.Lj[l_k_idx] = piv_row
-                elif l_piv_idx >= 0:
-                    self.Lj[l_piv_idx] = k
+                var k_len = len(self.row_L_cols[k])
+                var piv_len = len(self.row_L_cols[piv_row])
+                var k_cols = List[Int]()
+                for idx in range(k_len):
+                    k_cols.append(self.row_L_cols[k][idx])
+
+                for j_idx in range(k_len):
+                    var j = k_cols[j_idx]
+                    if j >= k:
+                        continue
+                    var piv_has_j = False
+                    for p_idx2 in range(piv_len):
+                        if self.row_L_cols[piv_row][p_idx2] == j:
+                            piv_has_j = True
+                            break
+                    if piv_has_j:
+                        var l_start = self.L_col_start[j]
+                        var l_end = l_start + self.L_col_nnz[j]
+                        var l_k_idx: Int = -1
+                        var l_piv_idx: Int = -1
+                        for p in range(l_start, l_end):
+                            if self.Lj[p] == k:
+                                l_k_idx = p
+                            if self.Lj[p] == piv_row:
+                                l_piv_idx = p
+                        if l_k_idx >= 0 and l_piv_idx >= 0:
+                            var tmp = self.Lx[l_k_idx]
+                            self.Lx[l_k_idx] = self.Lx[l_piv_idx]
+                            self.Lx[l_piv_idx] = tmp
+                    else:
+                        var l_start = self.L_col_start[j]
+                        var l_end = l_start + self.L_col_nnz[j]
+                        for p in range(l_start, l_end):
+                            if self.Lj[p] == k:
+                                self.Lj[p] = piv_row
+                                break
+
+                for j_idx in range(piv_len):
+                    var j = self.row_L_cols[piv_row][j_idx]
+                    if j >= k:
+                        continue
+                    var k_has_j = False
+                    for p_idx2 in range(k_len):
+                        if k_cols[p_idx2] == j:
+                            k_has_j = True
+                            break
+                    if not k_has_j:
+                        var l_start = self.L_col_start[j]
+                        var l_end = l_start + self.L_col_nnz[j]
+                        for p in range(l_start, l_end):
+                            if self.Lj[p] == piv_row:
+                                self.Lj[p] = k
+                                break
+
+                self.row_L_cols[k].clear()
+                for idx in range(piv_len):
+                    self.row_L_cols[k].append(self.row_L_cols[piv_row][idx])
+                self.row_L_cols[piv_row].clear()
+                for idx in range(k_len):
+                    self.row_L_cols[piv_row].append(k_cols[idx])
 
             var old_perm_k = self.perm[k]
             var old_perm_piv = self.perm[piv_row]
@@ -278,6 +326,7 @@ struct SparseLU(Movable):
                     self.Lx.append(l_val)
                     nnzL += 1
                     self.L_col_nnz[k] += 1
+                    self.row_L_cols[i].append(k)
 
             for idx in range(len(self.w_nz)):
                 W_ptr[self.w_nz[idx]] = 0.0
