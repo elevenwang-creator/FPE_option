@@ -1,6 +1,6 @@
 """Unit test for SparseLU correctness and performance."""
 
-from numerics.sparse_lu import SparseLU
+from numerics.utils.sparse_lu import SparseLU
 from sparse.csc import CSCMatrix
 from sparse.csr import CSRMatrix
 from std.math import abs
@@ -140,6 +140,63 @@ def main() raises:
     for i in range(4):
         residual4 = residual4 + abs(Ax4[i] - b4[i])
     print(" ||Ax - b|| = ", residual4)
+    print()
+
+    print("[Test 4] 32x32 pentadiagonal matrix (bandwidth 2)")
+    var n32 = 32
+    var A32_csr = CSRMatrix(n32, n32, 0)
+    var indptr32: List[Int] = [0]
+    var indices32: List[Int] = []
+    var data32: List[Float64] = []
+    for i in range(n32):
+        if i > 1:
+            indices32.append(i - 2)
+            data32.append(-1.0)
+        if i > 0:
+            indices32.append(i - 1)
+            data32.append(-1.0)
+        indices32.append(i)
+        data32.append(6.0)
+        if i < n32 - 1:
+            indices32.append(i + 1)
+            data32.append(-1.0)
+        if i < n32 - 2:
+            indices32.append(i + 2)
+            data32.append(-1.0)
+        indptr32.append(len(indices32))
+    A32_csr.indptr = indptr32^
+    A32_csr.indices = indices32^
+    A32_csr.data = data32^
+    A32_csr._nnz = len(A32_csr.data)
+
+    var A32 = A32_csr.to_csc()
+
+    var lu32 = SparseLU(n32)
+    lu32.factorize(A32)
+
+    var b32: List[Float64] = []
+    b32.append(4.0)
+    b32.append(4.0)
+    for _ in range(2, n32 - 2):
+        b32.append(2.0)
+    b32.append(4.0)
+    b32.append(4.0)
+    var x32 = lu32.solve(b32)
+
+    var Ax32: List[Float64] = []
+    for _ in range(n32):
+        Ax32.append(0.0)
+    for col in range(n32):
+        for p in range(A32.colptr[col], A32.colptr[col + 1]):
+            var row = A32.indices[p]
+            Ax32[row] = Ax32[row] + A32.data[p] * x32[col]
+
+    var residual32 = 0.0
+    for i in range(n32):
+        residual32 = residual32 + abs(Ax32[i] - b32[i])
+    var ok4 = residual32 < 1e-10
+    print(" ||Ax - b|| = ", residual32)
+    print(" PASS" if ok4 else " FAIL")
     print()
 
     print("=== All tests complete ===")
