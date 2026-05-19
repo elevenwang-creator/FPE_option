@@ -40,7 +40,7 @@ from numerics.utils import (
     copy_vec,
     pow_pos,
 )
-from numerics.sparse_lu import SparseLU
+from numerics.utils.sparse_lu import SparseLU
 from sparse.csr import CSRMatrix
 from sparse.csc import CSCMatrix
 from std.math import sqrt, abs, min, max

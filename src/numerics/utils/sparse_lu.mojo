@@ -8,8 +8,6 @@ Optimized implementation using:
 - gather/scatter SIMD for solve_inplace scatter-add pattern
 - @always_inline on all hot-path methods
 - memcpy for zero-copy vector transfer
-- Sparse-aware left-looking: iterate only nonzero columns in workspace
-- Deferred pivot permutation via row-index inverted index (Optimization B)
 
 Accepts CSCMatrix input for efficient column-wise access.
 Use CSRMatrix.to_csc() to convert CSR matrices before factorizing.
@@ -40,13 +38,11 @@ struct SparseLU(Movable):
     var n: Int
     var W: FixedSizeVector
     var w_nz: List[Int]
-    var w_nz_pending: List[Int]
     var pinv: List[Int]
     var L_col_start: List[Int]
     var L_col_nnz: List[Int]
     var U_col_start: List[Int]
     var U_col_nnz: List[Int]
-    var row_L_cols: List[List[Int]]
 
     def __init__(out self, n: Int):
         self.n = n
@@ -60,13 +56,11 @@ struct SparseLU(Movable):
         self.diag_vals = List[Float64]()
         self.W = FixedSizeVector(n)
         self.w_nz = List[Int]()
-        self.w_nz_pending = List[Int]()
         self.pinv = List[Int]()
         self.L_col_start = List[Int]()
         self.L_col_nnz = List[Int]()
         self.U_col_start = List[Int]()
         self.U_col_nnz = List[Int]()
-        self.row_L_cols = List[List[Int]]()
 
         for _ in range(n + 1):
             self.Lp.append(0)
@@ -79,37 +73,12 @@ struct SparseLU(Movable):
             self.L_col_nnz.append(0)
             self.U_col_start.append(0)
             self.U_col_nnz.append(0)
-            var inner = List[Int]()
-            self.row_L_cols.append(inner^)
-
-    @always_inline
-    def _sort_w_nz(mut self):
-        var lst_len = len(self.w_nz)
-        for i in range(1, lst_len):
-            var key = self.w_nz[i]
-            var j = i - 1
-            while j >= 0 and self.w_nz[j] > key:
-                self.w_nz[j + 1] = self.w_nz[j]
-                j -= 1
-            self.w_nz[j + 1] = key
-
-    @always_inline
-    def _sort_w_nz_pending(mut self):
-        var lst_len = len(self.w_nz_pending)
-        for i in range(1, lst_len):
-            var key = self.w_nz_pending[i]
-            var j = i - 1
-            while j >= 0 and self.w_nz_pending[j] > key:
-                self.w_nz_pending[j + 1] = self.w_nz_pending[j]
-                j -= 1
-            self.w_nz_pending[j + 1] = key
 
     @always_inline
     def factorize(mut self, A: CSCMatrix) raises:
         var n = self.n
 
         self.w_nz.clear()
-        self.w_nz_pending.clear()
         self.Lj.clear()
         self.Lx.clear()
         self.Uj.clear()
@@ -120,7 +89,6 @@ struct SparseLU(Movable):
         self.Uj.reserve(n * n // 4)
         self.Ux.reserve(n * n // 4)
         self.w_nz.reserve(n)
-        self.w_nz_pending.reserve(n)
 
         for i in range(n):
             self.perm[i] = i
@@ -129,18 +97,14 @@ struct SparseLU(Movable):
             self.L_col_nnz[i] = 0
             self.U_col_start[i] = 0
             self.U_col_nnz[i] = 0
-            self.row_L_cols[i].clear()
 
         self.W.zero_out()
 
         var W_ptr = self.W.ptr()
         var nnzL = 0
         var nnzU = 0
-        var k = 0
-        var piv_val: Float64
-        var piv_row: Int
 
-        while k < n:
+        for k in range(n):
             self.L_col_start[k] = nnzL
             self.U_col_start[k] = nnzU
 
@@ -154,65 +118,30 @@ struct SparseLU(Movable):
                 W_ptr[prow] = A.data[p]
                 self.w_nz.append(prow)
 
-            self._sort_w_nz()
-
-            self.w_nz_pending.clear()
-            var nz_idx = 0
-            var w_nz_len = len(self.w_nz)
-            while nz_idx < w_nz_len:
-                var j = self.w_nz[nz_idx]
-                if j >= k:
-                    break
+            for j in range(k):
                 var u_jk = W_ptr[j]
-                if abs(u_jk) >= 1e-14:
-                    self.Uj.append(j)
-                    self.Ux.append(u_jk)
-                    nnzU += 1
-                    self.U_col_nnz[k] += 1
-                    var l_start = self.L_col_start[j]
-                    var l_end = l_start + self.L_col_nnz[j]
-                    for p in range(l_start, l_end):
-                        var row = self.Lj[p]
-                        var old_val = W_ptr[row]
-                        var new_val = old_val - self.Lx[p] * u_jk
-                        if old_val == 0.0 and new_val != 0.0:
-                            self.w_nz_pending.append(row)
-                        W_ptr[row] = new_val
+                if abs(u_jk) < 1e-14:
+                    continue
+
+                self.Uj.append(j)
+                self.Ux.append(u_jk)
+                nnzU += 1
+                self.U_col_nnz[k] += 1
+
+                var l_start = self.L_col_start[j]
+                var l_end = l_start + self.L_col_nnz[j]
+                for p in range(l_start, l_end):
+                    var row = self.Lj[p]
+                    var old_val = W_ptr[row]
+                    var new_val = old_val - self.Lx[p] * u_jk
+                    if old_val == 0.0 and new_val != 0.0:
+                        self.w_nz.append(row)
+                    W_ptr[row] = new_val
+
                 W_ptr[j] = 0.0
-                nz_idx += 1
 
-            var round_limit = 3
-            while len(self.w_nz_pending) > 0 and round_limit > 0:
-                self._sort_w_nz_pending()
-                var pending_len = len(self.w_nz_pending)
-                var p_idx = 0
-                while p_idx < pending_len:
-                    var j = self.w_nz_pending[p_idx]
-                    if j >= k:
-                        p_idx += 1
-                        continue
-                    var u_jk = W_ptr[j]
-                    if abs(u_jk) >= 1e-14:
-                        self.Uj.append(j)
-                        self.Ux.append(u_jk)
-                        nnzU += 1
-                        self.U_col_nnz[k] += 1
-                        var l_start = self.L_col_start[j]
-                        var l_end = l_start + self.L_col_nnz[j]
-                        for p in range(l_start, l_end):
-                            var row = self.Lj[p]
-                            var old_val = W_ptr[row]
-                            var new_val = old_val - self.Lx[p] * u_jk
-                            if old_val == 0.0 and new_val != 0.0:
-                                self.w_nz_pending.append(row)
-                            W_ptr[row] = new_val
-                    W_ptr[j] = 0.0
-                    p_idx += 1
-                self.w_nz_pending.clear()
-                round_limit -= 1
-
-            piv_val = W_ptr[k]
-            piv_row = k
+            var piv_val = W_ptr[k]
+            var piv_row = k
 
             var remain = n - k - 1
             if remain > 0:
@@ -240,78 +169,40 @@ struct SparseLU(Movable):
                 var wnz_len = len(self.w_nz)
                 for idx in range(wnz_len):
                     W_ptr[self.w_nz[idx]] = 0.0
-                k += 1
                 continue
 
             if piv_row != k:
-                swap(W_ptr[k], W_ptr[piv_row])
+                var tmp = W_ptr[k]
+                W_ptr[k] = W_ptr[piv_row]
+                W_ptr[piv_row] = tmp
 
-                var k_len = len(self.row_L_cols[k])
-                var piv_len = len(self.row_L_cols[piv_row])
-                var k_cols = List[Int]()
-                for idx in range(k_len):
-                    k_cols.append(self.row_L_cols[k][idx])
+                for j in range(k):
+                    var l_start = self.L_col_start[j]
+                    var l_end = l_start + self.L_col_nnz[j]
+                    var l_k_val: Float64 = 0.0
+                    var l_piv_val: Float64 = 0.0
+                    var l_k_idx: Int = -1
+                    var l_piv_idx: Int = -1
+                    for p in range(l_start, l_end):
+                        if self.Lj[p] == k:
+                            l_k_val = self.Lx[p]
+                            l_k_idx = p
+                        if self.Lj[p] == piv_row:
+                            l_piv_val = self.Lx[p]
+                            l_piv_idx = p
+                    if l_k_idx >= 0 and l_piv_idx >= 0:
+                        self.Lx[l_k_idx] = l_piv_val
+                        self.Lx[l_piv_idx] = l_k_val
+                    elif l_k_idx >= 0:
+                        self.Lj[l_k_idx] = piv_row
+                    elif l_piv_idx >= 0:
+                        self.Lj[l_piv_idx] = k
 
-                for j_idx in range(k_len):
-                    var j = k_cols[j_idx]
-                    if j >= k:
-                        continue
-                    var piv_has_j = False
-                    for p_idx2 in range(piv_len):
-                        if self.row_L_cols[piv_row][p_idx2] == j:
-                            piv_has_j = True
-                            break
-                    if piv_has_j:
-                        var l_start = self.L_col_start[j]
-                        var l_end = l_start + self.L_col_nnz[j]
-                        var l_k_idx: Int = -1
-                        var l_piv_idx: Int = -1
-                        for p in range(l_start, l_end):
-                            if self.Lj[p] == k:
-                                l_k_idx = p
-                            if self.Lj[p] == piv_row:
-                                l_piv_idx = p
-                        if l_k_idx >= 0 and l_piv_idx >= 0:
-                            var tmp = self.Lx[l_k_idx]
-                            self.Lx[l_k_idx] = self.Lx[l_piv_idx]
-                            self.Lx[l_piv_idx] = tmp
-                    else:
-                        var l_start = self.L_col_start[j]
-                        var l_end = l_start + self.L_col_nnz[j]
-                        for p in range(l_start, l_end):
-                            if self.Lj[p] == k:
-                                self.Lj[p] = piv_row
-                                break
-
-                for j_idx in range(piv_len):
-                    var j = self.row_L_cols[piv_row][j_idx]
-                    if j >= k:
-                        continue
-                    var k_has_j = False
-                    for p_idx2 in range(k_len):
-                        if k_cols[p_idx2] == j:
-                            k_has_j = True
-                            break
-                    if not k_has_j:
-                        var l_start = self.L_col_start[j]
-                        var l_end = l_start + self.L_col_nnz[j]
-                        for p in range(l_start, l_end):
-                            if self.Lj[p] == piv_row:
-                                self.Lj[p] = k
-                                break
-
-                self.row_L_cols[k].clear()
-                for idx in range(piv_len):
-                    self.row_L_cols[k].append(self.row_L_cols[piv_row][idx])
-                self.row_L_cols[piv_row].clear()
-                for idx in range(k_len):
-                    self.row_L_cols[piv_row].append(k_cols[idx])
-
-            var old_perm_k = self.perm[k]
-            var old_perm_piv = self.perm[piv_row]
-            self.perm.swap_elements(k, piv_row)
-            self.pinv[old_perm_k] = piv_row
-            self.pinv[old_perm_piv] = k
+                var old_perm_k = self.perm[k]
+                var old_perm_piv = self.perm[piv_row]
+                self.perm.swap_elements(k, piv_row)
+                self.pinv[old_perm_k] = piv_row
+                self.pinv[old_perm_piv] = k
 
             self.Uj.append(k)
             self.Ux.append(W_ptr[k])
@@ -326,7 +217,6 @@ struct SparseLU(Movable):
                     self.Lx.append(l_val)
                     nnzL += 1
                     self.L_col_nnz[k] += 1
-                    self.row_L_cols[i].append(k)
 
             for idx in range(len(self.w_nz)):
                 W_ptr[self.w_nz[idx]] = 0.0
@@ -335,10 +225,6 @@ struct SparseLU(Movable):
             for idx in range(l_col_nnz_k):
                 W_ptr[self.Lj[l_col_start_k + idx]] = 0.0
             W_ptr[k] = 0.0
-            if piv_row != k:
-                W_ptr[piv_row] = 0.0
-
-            k += 1
 
         self.Lp[0] = 0
         self.Up[0] = 0
@@ -433,7 +319,9 @@ struct SparseLU(Movable):
                 var offset_vec = (lj_scalar + p).load[width=width]()
                 var lx_vec = (lx_scalar + p).load[width=width]()
                 var gathered = work_scalar.gather[width=width](offset_vec)
-                work_scalar.scatter[width=width](offset_vec, gathered - lx_vec * y_k)
+                work_scalar.scatter[width=width](
+                    offset_vec, gathered - lx_vec * y_k
+                )
                 p += width
             while p < l_end:
                 var row = lj_ptr[p]
@@ -453,7 +341,9 @@ struct SparseLU(Movable):
                 var offset_vec = (uj_scalar + p).load[width=width]()
                 var ux_vec = (ux_scalar + p).load[width=width]()
                 var gathered = b_scalar.gather[width=width](offset_vec)
-                b_scalar.scatter[width=width](offset_vec, gathered - ux_vec * b_k)
+                b_scalar.scatter[width=width](
+                    offset_vec, gathered - ux_vec * b_k
+                )
                 p += width
             while p < u_end:
                 b_ptr[uj_ptr[p]] = b_ptr[uj_ptr[p]] - ux_ptr[p] * b_k

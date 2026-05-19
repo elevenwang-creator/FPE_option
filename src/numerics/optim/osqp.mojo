@@ -23,7 +23,7 @@ Correctness fixes:
 
 from sparse.csr import CSRMatrix
 from sparse.csc import CSCMatrix
-from numerics.sparse_lu import SparseLU
+from numerics.utils.sparse_lu import SparseLU
 from numerics.utils import FixedSizeVector
 from std.math import sqrt, abs, max
 from std.sys import simd_width_of
