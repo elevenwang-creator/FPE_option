@@ -526,7 +526,6 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     facgus = max_f64(1.0 / fac2, min_f64(1.0 / fac1, facgus))
                     quot = max_f64(quot, facgus)
                     h_new = h / quot
-
                 hacc = h
                 erracc = max_f64(1e-2, err_norm)
                 h_old = h
@@ -544,8 +543,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     h = h * 0.1
                 else:
                     h = h_new
-                if n_accepted >= 1:
-                    n_rejected += 1
+        if n_accepted >= 1:
+            n_rejected += 1
 
         return ODESolution(
             t_values^,
@@ -1128,3 +1127,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 dF2[i] = dF2[i] + yk * gmres_V_re[k_idx][i]
                 dF3[i] = dF3[i] + yk * gmres_V_im[k_idx][i]
                 i += 1
+
+
+@always_inline
+def contr5(i: Int, s: Float64, cont: FixedSizeVector, n: Int) -> Float64:
+    return cont[i] + s * (cont[i + n] + (s - C2M1) * (cont[i + 2 * n] + (s - C1M1) * cont[i + 3 * n]))
