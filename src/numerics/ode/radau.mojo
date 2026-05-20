@@ -145,6 +145,12 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var y = FixedSizeVector(n)
         y.copy_from(y0)
         var t = t0
+        var t_eval_idx: Int = 0
+
+        if t_eval is not None:
+            if t_eval_idx < len(t_eval.value()):
+                if abs_f64(t_eval.value()[t_eval_idx] - t0) <= 1e-15:
+                    t_eval_idx += 1
 
         var uround: Float64 = 1e-16
         var nit: Int = 6
@@ -270,6 +276,12 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
             if posneg * (t + 1.01 * h - t1) > 0.0:
                 h = t1 - t
+
+            if t_eval is not None:
+                if t_eval_idx < len(t_eval.value()):
+                    var te = t_eval.value()[t_eval_idx]
+                    if posneg * (t + 1.01 * h - te) > 0.0 and posneg * (te - t) > 0.0:
+                        h = te - t
 
             var h_abs = abs_f64(h)
             if h_abs < 1e-14:
@@ -512,13 +524,31 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
             if err_norm < 1.0:
                 first = False
                 n_accepted += 1
+                var t_old = t
                 t = t + h
                 y.addassign(Z3)
 
                 n_steps += 1
 
-                t_values.append(t)
-                y_values.append(y.to_list())
+                if t_eval is None:
+                    t_values.append(t)
+                    y_values.append(y.to_list())
+                else:
+                    while t_eval_idx < len(t_eval.value()):
+                        var te = t_eval.value()[t_eval_idx]
+                        if posneg * (te - t) > uround * max_f64(abs_f64(t), abs_f64(te)):
+                            break
+                        if abs_f64(te - t) <= uround * max_f64(abs_f64(t), abs_f64(te)):
+                            t_values.append(te)
+                            y_values.append(y.to_list())
+                        else:
+                            var s_val = (te - t_old) / h_old
+                            var y_interp: List[Float64] = []
+                            for k_idx in range(n):
+                                y_interp.append(contr5(k_idx, s_val, CONT, n))
+                            t_values.append(te)
+                            y_values.append(y_interp^)
+                        t_eval_idx += 1
 
                 if n_accepted > 1:
                     var facgus = (
@@ -546,8 +576,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     h = h * 0.1
                 else:
                     h = h_new
-        if n_accepted >= 1:
-            n_rejected += 1
+                if n_accepted >= 1:
+                    n_rejected += 1
 
         return ODESolution(
             t_values^,
