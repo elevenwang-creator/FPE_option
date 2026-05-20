@@ -151,8 +151,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var safety: Float64 = 0.9
         var fac1: Float64 = 0.2
         var fac2: Float64 = 10.0
-        var quot1: Float64 = 0.5
-        var quot2: Float64 = 2.5
+        var quot1: Float64 = 1.0
+        var quot2: Float64 = 1.2
 
         var rtol_work = 0.1 * self.rtol ** (2.0 / 3.0)
         var atol_work = rtol_work * (self.atol / self.rtol)
@@ -194,6 +194,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var erracc: Float64 = 1e-2
         var cfac = safety * Float64(1 + 2 * nit)
 
+        var h_opt: Float64 = h
         var h_lu: Float64 = 0.0
         var lu_real = SparseLU(n)
 
@@ -533,6 +534,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 h_new = posneg * min_f64(abs_f64(h_new), abs_f64(t1 - t))
                 if self.max_step > 0.0:
                     h_new = posneg * min_f64(abs_f64(h_new), self.max_step)
+                h_opt = h_new
+                h_opt = min_f64(h, h_new)
                 if reject:
                     h_new = posneg * min_f64(abs_f64(h_new), abs_f64(h))
                 reject = False
