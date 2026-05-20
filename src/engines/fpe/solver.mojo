@@ -2,36 +2,23 @@
 
 Key improvements over original:
 - Uses sparse CSRMatrix spmv for ODE RHS (O(nnz) vs O(n^2))
-- Uses shared linalg.lu_solve (deduplicates LU code)
 - Uses proper RadauIIA solver (order 5 vs order 1 BackwardEuler)
 - D-scaling (diagonal preconditioning) for well-conditioned ODE system
 - Retains comptime batch_size dispatch architecture
 """
 
-from engines.fpe.domain import FPEDomain, FPECachedBasis
-from engines.fpe.galerkin import GalerkinAssembler
+from engines.fpe.domain import FPEDomain
+from engines.fpe.galerkin import mass_from_cached, stiffness_from_cached
 from engines.fpe.heston_params import HestonParams
-from engines.fpe.initial_cond import InitialCondition
-from numerics.linalg import lu_solve
+from engines.fpe.initial_cond import initial_condition_from_cached
 from numerics.ode.radau import RadauSparseLinearSolver
 from numerics.ode.types import ODESystem
 from numerics.ode.radau import LinearODESystem
-from numerics.utils import zeros, copy_vec, copy_mat
+from numerics.utils import zeros
 from sparse.csr import CSRMatrix
 from sparse.diag_scale import diag_scale
 from std.math import sqrt
 from std.sys import has_accelerator
-
-
-def _csr_to_dense_float(A: CSRMatrix) -> List[List[Float64]]:
-    var d = A.to_dense()
-    var out: List[List[Float64]] = []
-    for i in range(A.nrows):
-        var row: List[Float64] = []
-        for j in range(A.ncols):
-            row.append(d[i][j])
-        out.append(row^)
-    return out^
 
 
 struct FPESparseSystem(ODESystem):
@@ -93,44 +80,30 @@ struct FPESolver[B: Int]:
         self,
         domain: FPEDomain,
         params: HestonParams,
-        t_eval: List[Float64],
+        t_eval: Optional[List[Float64]] = None,
     ) raises -> List[List[Float64]]:
-        var assembler = GalerkinAssembler[Self.B]()
-        var M = assembler.mass_matrix(domain)
-        var K = assembler.stiffness_matrix(domain, params)
-        var q0 = InitialCondition[Self.B]().compute(domain, params)
+        var cached = domain.cached_basis()
+        var M = mass_from_cached(cached)
+        var K = stiffness_from_cached(cached, params)
+        var q0 = initial_condition_from_cached(cached, params, M)
+        var t_end = params.T
 
         comptime if Self.B == 1:
-            return self._integrate_cpu_sparse(M^, K^, q0, t_eval)
+            return self._integrate_cpu_sparse(M^, K^, q0, t_eval, t_end)
         else:
             comptime if has_accelerator():
-                return self._solve_gpu_batch(M^, K^, q0, t_eval)
+                return self._solve_gpu_batch(M^, K^, q0, t_eval, t_end)
             else:
-                return self._solve_cpu_parallel(M^, K^, q0, t_eval)
-
-    def solve_with_matrices(
-        self,
-        var M: CSRMatrix,
-        var K: CSRMatrix,
-        q0: List[Float64],
-        t_eval: List[Float64],
-    ) raises -> List[List[Float64]]:
-        comptime if Self.B == 1:
-            return self._integrate_cpu_sparse(M^, K^, q0, t_eval)
-        else:
-            comptime if has_accelerator():
-                return self._solve_gpu_batch(M^, K^, q0, t_eval)
-            else:
-                return self._solve_cpu_parallel(M^, K^, q0, t_eval)
+                return self._solve_cpu_parallel(M^, K^, q0, t_eval, t_end)
 
     def _integrate_cpu_sparse(
         self,
         var M: CSRMatrix,
         var K: CSRMatrix,
         q0: List[Float64],
-        t_eval: List[Float64],
+        t_eval: Optional[List[Float64]],
+        t_end: Float64,
     ) raises -> List[List[Float64]]:
-        var t_end = t_eval[len(t_eval) - 1]
         var n = M.nrows
 
         var D = zeros(n)
@@ -159,7 +132,7 @@ struct FPESolver[B: Int]:
             if D[i] > d_max:
                 d_max = D[i]
         print(
-            "     D-SCALING: D_min=",
+            " D-SCALING: D_min=",
             d_min,
             " D_max=",
             d_max,
@@ -176,7 +149,7 @@ struct FPESolver[B: Int]:
                     if M_s.data[p] > ms_diag_max:
                         ms_diag_max = M_s.data[p]
                     break
-        print("     M_s diag: min=", ms_diag_min, " max=", ms_diag_max)
+        print(" M_s diag: min=", ms_diag_min, " max=", ms_diag_max)
 
         var q0_s = zeros(n)
         for i in range(n):
@@ -189,7 +162,7 @@ struct FPESolver[B: Int]:
             first_step=self.first_step,
         )
         var system = FPESparseLinearSystem(M_s^, K_s^)
-        var sol = ode.solve(system, (0.0, t_end), q0_s, t_eval.copy())
+        var sol = ode.solve(system, (0.0, t_end), q0_s, t_eval)
 
         var y_out: List[List[Float64]] = []
         for idx in range(len(sol.y)):
@@ -205,7 +178,8 @@ struct FPESolver[B: Int]:
         var M: CSRMatrix,
         var K: CSRMatrix,
         q0: List[Float64],
-        t_eval: List[Float64],
+        t_eval: Optional[List[Float64]],
+        t_end: Float64,
     ) raises -> List[List[Float64]]:
         from engines.fpe.gpu.executor import GPUFullChainExecutor
 
@@ -222,10 +196,9 @@ struct FPESolver[B: Int]:
         var M: CSRMatrix,
         var K: CSRMatrix,
         q0: List[Float64],
-        t_eval: List[Float64],
+        t_eval: Optional[List[Float64]],
+        t_end: Float64,
     ) raises -> List[List[Float64]]:
-        var t_end = t_eval[len(t_eval) - 1]
-
         var ode = RadauSparseLinearSolver[FPESparseLinearSystem](
             rtol=self.rtol,
             atol=self.atol,
@@ -233,30 +206,6 @@ struct FPESolver[B: Int]:
             first_step=self.first_step,
         )
         var system = FPESparseLinearSystem(M^, K^)
-        var sol = ode.solve(system, (0.0, t_end), q0, t_eval.copy())
+        var sol = ode.solve(system, (0.0, t_end), q0, t_eval)
         var y_out = sol.y.copy()
         return y_out^
-
-    def _compute_sparse_neg_M_inv_K(
-        self,
-        M: CSRMatrix,
-        K: CSRMatrix,
-    ) raises -> CSRMatrix:
-        _ = self
-        var M_dense = _csr_to_dense_float(M)
-        var K_dense = _csr_to_dense_float(K)
-        var n = M.nrows
-
-        var out: List[List[Float64]] = []
-        for _ in range(n):
-            out.append(zeros(n))
-
-        for col in range(n):
-            var rhs = zeros(n)
-            for i in range(n):
-                rhs[i] = K_dense[i][col]
-            var x = lu_solve(M_dense, rhs)
-            for i in range(n):
-                out[i][col] = -x[i]
-
-        return CSRMatrix.from_dense(out)

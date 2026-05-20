@@ -28,7 +28,7 @@ def _seed_grid(
         rtol=1e-4, atol=1e-6, max_step=0.1, first_step=0.01
     )
     var t_eval: List[Float64] = [0.0, T]
-    var sol = solver.solve(domain, params, t_eval)
+    var sol = solver.solve(domain, params, t_eval^)
 
     var n_s = len(domain.s_points)
     var n_v = len(domain.v_points)

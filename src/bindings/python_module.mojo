@@ -33,8 +33,8 @@ def _seed_grid(
     )
     var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
     var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1)
-    var t_eval: List[Float64] = [0.0, T]
-    var sol = solver.solve(domain, params, t_eval)
+var t_eval: List[Float64] = [0.0, T]
+var sol = solver.solve(domain, params, t_eval^)
 
     # Build real PDF grid from FPE solution
     var n_s = len(domain.s_points)
@@ -125,7 +125,7 @@ def py_solve_fpe(params_obj: PythonObject) raises -> PythonObject:
     var domain = FPEDomain[3, 3](params)
     var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1)
     var t_eval: List[Float64] = [0.0, Float64(py=T)]
-    var sol = solver.solve(domain, params, t_eval)
+    var sol = solver.solve(domain, params, t_eval^)
 
     # Cache the computed PDF
     var engine = PricingEngine()

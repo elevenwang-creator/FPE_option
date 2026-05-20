@@ -38,7 +38,7 @@ def _build_pdf_grid(
         rtol=rtol, atol=atol, max_step=0.1, first_step=0.0
     )
     var t_eval: List[Float64] = [0.0, heston.T]
-    var sol = solver.solve(domain, heston, t_eval)
+    var sol = solver.solve(domain, heston, t_eval^)
 
     var n_s_pts = len(domain.s_points)
     var n_v_pts = len(domain.v_points)

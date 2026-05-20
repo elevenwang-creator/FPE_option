@@ -193,14 +193,16 @@ def main() raises:
     print(" ||K*q0|| = " + String(kq0_norm))
     print(" ||q0|| = " + String(q0_norm))
 
-    var t_eval = List[Float64]()
-    t_eval.append(0.0)
-    t_eval.append(params.T)
+    #var t_eval = List[Float64]()
+    #t_eval.append(0.0)
+    #t_eval.append(params.T)
+    #var t_eval = [0, 0.0028, 0.0278, 0.0833, 0.6]
+    var t_eval = None
 
     var fpe_solver = FPESolver[1](
         rtol=1e-4, atol=1e-6, max_step=0.1, first_step=1e-6
     )
-    var q_t = fpe_solver.solve_with_matrices(M^, K^, q0, t_eval)
+    var q_t = fpe_solver.solve(domain, params, t_eval)
     print(" ODE steps: " + String(len(q_t)))
 
     var q_diff = q_t[len(q_t) - 1].copy()
@@ -259,7 +261,7 @@ def main() raises:
             if val > pdf_max:
                 pdf_max = val
     print(" PDF max value: " + String(pdf_max))
-    print(" PDF integral: " + String(pdf_norm) + " (should be ~1.0)")
+    print(" PDF integral: " + String(pdf_norm))
 
     var e_s = 0.0
     for i in range(len(pdf_grid)):
@@ -288,7 +290,7 @@ def main() raises:
             marginal_max = marginal[i]
     print(" Marginal max value: " + String(marginal_max))
 
-    var strikes = [65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0]
+    var strikes = [65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0,105.0, 110.0, 115.0]
     var barrier = 50.0
     print()
     print(
