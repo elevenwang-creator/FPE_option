@@ -217,7 +217,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var dF2 = FixedSizeVector(n)
         var dF3 = FixedSizeVector(n)
         var work_n = FixedSizeVector(n)
-        var CONT = FixedSizeVector(n)
+        var CONT = FixedSizeVector(4 * n)
+        var CONT_ERR = FixedSizeVector(n)
         var M_CONT = FixedSizeVector(n)
         var rhs_err = FixedSizeVector(n)
         var error_vec = FixedSizeVector(n)
@@ -311,9 +312,18 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 var c2r = C2 * ratio
                 var c3r = ratio
                 for k_idx in range(n):
-                    Z1[k_idx] = c1r * CONT[k_idx]
-                    Z2[k_idx] = c2r * CONT[k_idx]
-                    Z3[k_idx] = c3r * CONT[k_idx]
+                    var ak1 = CONT[k_idx + n]
+                    var ak2 = CONT[k_idx + 2 * n]
+                    var ak3 = CONT[k_idx + 3 * n]
+                    Z1[k_idx] = c1r * (
+                        ak1 + (c1r - C2M1) * (ak2 + (c1r - C1M1) * ak3)
+                    )
+                    Z2[k_idx] = c2r * (
+                        ak1 + (c2r - C2M1) * (ak2 + (c2r - C1M1) * ak3)
+                    )
+                    Z3[k_idx] = c3r * (
+                        ak1 + (c3r - C2M1) * (ak2 + (c3r - C1M1) * ak3)
+                    )
                 F1.lin_comb_3(TI11, Z1, TI12, Z2, TI13, Z3)
                 F2.lin_comb_3(TI21, Z1, TI22, Z2, TI23, Z3)
                 F3.lin_comb_3(TI31, Z1, TI32, Z2, TI33, Z3)
@@ -455,9 +465,19 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
             theta = theta_loc
 
-            CONT.lin_comb_3(DD1, Z1, DD2, Z2, DD3, Z3)
+            for k_idx in range(n):
+                var z2i = Z2[k_idx]
+                var z1i = Z1[k_idx]
+                CONT[k_idx] = y[k_idx] + Z3[k_idx]
+                CONT[k_idx + n] = (z2i - Z3[k_idx]) / C2M1
+                var ak = (z1i - z2i) / C1MC2
+                var acont3 = z1i / C1
+                acont3 = (ak - acont3) / C2
+                CONT[k_idx + 2 * n] = (ak - CONT[k_idx + n]) / C1M1
+                CONT[k_idx + 3 * n] = CONT[k_idx + 2 * n] - acont3
+            CONT_ERR.lin_comb_3(DD1, Z1, DD2, Z2, DD3, Z3)
 
-            M.spmv(CONT, M_CONT)
+            M.spmv(CONT_ERR, M_CONT)
             rhs_err.sub_scaled(M_CONT, h, w)
             error_vec.copy_from_fixed(rhs_err)
             lu_real.solve_inplace(error_vec, work_n)
