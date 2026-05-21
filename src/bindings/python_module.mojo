@@ -2,210 +2,121 @@ from std.os import abort
 from std.python import Python, PythonObject
 from std.python.bindings import PythonModuleBuilder
 
-from engines.fpe.domain import FPEDomain
-from engines.fpe.heston_params import HestonParams
-from engines.fpe.solver import FPESolver
-from server.pdf_cache import PDFGrid
-from server.pricer import PricingRequest
+from server.option_types import FpeParams, PricingResult
 from server.pricing_engine import PricingEngine
+from engines.fpe.heston_params import HestonParams
 
 
-def _seed_grid(
-    mut engine: PricingEngine, param_hash: UInt64, T: Float64
-) raises:
-    """Solve FPE and store real PDF grid in the cache.
+def _option_type_from_string(type_str: String) -> Int:
+    if type_str == "down_and_in_call":
+        return 0
+    elif type_str == "down_and_in_put":
+        return 1
+    elif type_str == "down_and_out_call":
+        return 2
+    elif type_str == "down_and_out_put":
+        return 3
+    elif type_str == "up_and_in_call":
+        return 4
+    elif type_str == "up_and_in_put":
+        return 5
+    elif type_str == "up_and_out_call":
+        return 6
+    elif type_str == "up_and_out_put":
+        return 7
+    elif type_str == "european_call":
+        return 8
+    elif type_str == "european_put":
+        return 9
+    else:
+        return 8
 
-    This replaces the placeholder uniform PDF with the actual FPE solution.
-    """
-    var params = HestonParams(
-        kappa=1.2,
-        theta=0.05,
-        sigma=0.35,
-        rho=-0.4,
-        r=0.05,
+
+def py_price(params_obj: PythonObject) raises -> PythonObject:
+    var kappa = Float64(py=params_obj.get("kappa", PythonObject(1.2)))
+    var theta = Float64(py=params_obj.get("theta", PythonObject(0.05)))
+    var sigma = Float64(py=params_obj.get("sigma", PythonObject(0.35)))
+    var rho = Float64(py=params_obj.get("rho", PythonObject(-0.4)))
+    var r_rate = Float64(py=params_obj.get("r", PythonObject(0.05)))
+    var T = Float64(py=params_obj.get("T", PythonObject(0.5)))
+    var S0 = Float64(py=params_obj.get("S0", PythonObject(100.0)))
+    var V0 = Float64(py=params_obj.get("V0", PythonObject(0.1)))
+    var n_s = Int(py=params_obj.get("n_s", PythonObject(38)))
+    var n_v = Int(py=params_obj.get("n_v", PythonObject(38)))
+    var barrier = Float64(py=params_obj.get("barrier", PythonObject(0.0)))
+    var rtol = Float64(py=params_obj.get("rtol", PythonObject(1e-4)))
+    var atol = Float64(py=params_obj.get("atol", PythonObject(1e-6)))
+
+    var option_type_int = 8
+    var ot_obj = params_obj.get("option_type", PythonObject("european_call"))
+    var py_str = Python.import_module("builtins").str
+    if py_str == Python.type(ot_obj):
+        option_type_int = _option_type_from_string(String(py=ot_obj))
+    else:
+        option_type_int = Int(py=ot_obj)
+
+    var strikes: List[Float64] = []
+    var K_obj = params_obj.get("K", PythonObject(100.0))
+    var py_list = Python.import_module("builtins").list
+    if py_list == Python.type(K_obj):
+        for i in range(len(K_obj)):
+            strikes.append(Float64(py=K_obj[i]))
+    else:
+        strikes.append(Float64(py=K_obj))
+
+    var heston = HestonParams(
+        kappa=kappa,
+        theta=theta,
+        sigma=sigma,
+        rho=rho,
+        r=r_rate,
         T=T,
-        S0=100.0,
-        V0=0.1,
+        S0=S0,
+        V0=V0,
         S_min=0.0,
-        S_max=150.0,
-        V_min=0.0,
-        V_max=1.0,
-    )
-    var domain = FPEDomain[3, 3](params, n_s=8, n_v=8)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1)
-var t_eval: List[Float64] = [0.0, T]
-var sol = solver.solve(domain, params, t_eval^)
-
-    # Build real PDF grid from FPE solution
-    var n_s = len(domain.s_points)
-    var n_v = len(domain.v_points)
-    var pdf: List[List[Float64]] = []
-    for i in range(n_s):
-        var row: List[Float64] = []
-        for j in range(n_v):
-            row.append(sol[len(sol) - 1][i * n_v + j])
-        pdf.append(row^)
-
-    var ds: List[Float64] = []
-    var dv: List[Float64] = []
-    var grid = PDFGrid(
-        pdf=pdf^,
-        s_points=domain.s_points.copy(),
-        v_points=domain.v_points.copy(),
-        T=T,
-        ds_weights=ds^,
-        dv_weights=dv^,
-    )
-    grid.precompute_weights()
-    engine.store_pdf(param_hash, grid^)
-
-
-def _param_hash(params: HestonParams) -> UInt64:
-    """Hash of Heston parameters using bit-mixing for better distribution."""
-    var h: UInt64 = 5381
-    # Mix each parameter's bits into the hash
-    h = ((h << 5) + h) ^ UInt64(Int(params.kappa * 1e6))
-    h = ((h << 5) + h) ^ UInt64(Int(params.theta * 1e7))
-    h = ((h << 5) + h) ^ UInt64(Int(params.sigma * 1e8))
-    h = ((h << 5) + h) ^ UInt64(Int((params.rho + 1.0) * 1e9))
-    h = ((h << 5) + h) ^ UInt64(Int(params.r * 1e10))
-    h = ((h << 5) + h) ^ UInt64(Int(params.T * 1e11))
-    h = ((h << 5) + h) ^ UInt64(Int(params.S0 * 1e4))
-    h = ((h << 5) + h) ^ UInt64(Int(params.V0 * 1e6))
-    return h
-
-
-def py_price_single(
-    S: PythonObject,
-    K: PythonObject,
-    T: PythonObject,
-    barrier: PythonObject,
-    param_hash: PythonObject,
-) raises -> PythonObject:
-    """Price a single option (CPU, sub-ms)."""
-    _ = T
-    var engine = PricingEngine()
-    _seed_grid(engine, UInt64(py=param_hash), Float64(py=T))
-    var req = PricingRequest(
-        S=Float64(py=S),
-        K=Float64(py=K),
-        V=0.1,
-        barrier=Float64(py=barrier),
-        payoff_type=0,
-        param_hash=UInt64(py=param_hash),
-    )
-    var requests: List[PricingRequest] = [req^]
-    var results = engine.price[1](requests)
-    return Python.dict(
-        price=PythonObject(results[0].price),
-        delta=PythonObject(results[0].delta),
-        gamma=PythonObject(results[0].gamma),
-        success=PythonObject(results[0].success),
-    )
-
-
-def py_solve_fpe(params_obj: PythonObject) raises -> PythonObject:
-    """Solve FPE and cache PDF grid. Returns param_hash."""
-    var T = params_obj.get("T", PythonObject(0.5))
-    var params = HestonParams(
-        kappa=Float64(py=params_obj.get("kappa", PythonObject(1.2))),
-        theta=Float64(py=params_obj.get("theta", PythonObject(0.05))),
-        sigma=Float64(py=params_obj.get("sigma", PythonObject(0.35))),
-        rho=Float64(py=params_obj.get("rho", PythonObject(-0.4))),
-        r=Float64(py=params_obj.get("r", PythonObject(0.05))),
-        T=Float64(py=T),
-        S0=Float64(py=params_obj.get("S0", PythonObject(100.0))),
-        V0=Float64(py=params_obj.get("V0", PythonObject(0.1))),
-        S_min=0.0,
-        S_max=150.0,
+        S_max=S0 * 3.0,
         V_min=0.0,
         V_max=1.0,
     )
 
-    var domain = FPEDomain[3, 3](params)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1)
-    var t_eval: List[Float64] = [0.0, Float64(py=T)]
-    var sol = solver.solve(domain, params, t_eval^)
-
-    # Cache the computed PDF
-    var engine = PricingEngine()
-    var h = _param_hash(params)
-    var n_s = len(domain.s_points)
-    var n_v = len(domain.v_points)
-    var pdf: List[List[Float64]] = []
-    for i in range(n_s):
-        var row: List[Float64] = []
-        for j in range(n_v):
-            row.append(sol[len(sol) - 1][i * n_v + j])
-        pdf.append(row^)
-    var ds: List[Float64] = []
-    var dv: List[Float64] = []
-    var grid = PDFGrid(
-        pdf=pdf^,
-        s_points=domain.s_points.copy(),
-        v_points=domain.v_points.copy(),
-        T=Float64(py=T),
-        ds_weights=ds^,
-        dv_weights=dv^,
+    var fpe_params = FpeParams(
+        heston=heston.copy(),
+        n_s=n_s,
+        n_v=n_v,
+        barrier=barrier,
+        option_type=option_type_int,
+        strikes=strikes^,
     )
-    grid.precompute_weights()
-    engine.store_pdf(h, grid^)
 
-    return PythonObject(Int(h))
+    var engine = PricingEngine(rtol=rtol, atol=atol)
+    var results = engine.price(fpe_params)
 
-
-def py_price_batch(
-    S: PythonObject,
-    K: PythonObject,
-    T: PythonObject,
-    barrier: PythonObject,
-    payoff_type: PythonObject,
-    param_hash: PythonObject,
-) raises -> PythonObject:
-    """Price batch of options through Python (GPU paths connected)."""
-    _ = payoff_type
-    var s_list = Python.import_module("builtins").list(S)
-    var k_list = Python.import_module("builtins").list(K)
-    var t_list = Python.import_module("builtins").list(T)
-    var b_list = Python.import_module("builtins").list(barrier)
-    var n = len(s_list)
-
-    var engine = PricingEngine()
-    _seed_grid(engine, UInt64(py=param_hash), Float64(py=t_list[0]))
-
-    var requests: List[PricingRequest] = []
-    for i in range(n):
-        var req = PricingRequest(
-            S=Float64(py=s_list[i]),
-            K=Float64(py=k_list[i]),
-            V=0.1,
-            barrier=Float64(py=b_list[i]),
-            payoff_type=Int(py=payoff_type),
-            param_hash=UInt64(py=param_hash),
-        )
-        requests.append(req^)
-
-    var results = engine.price[1](requests)
-    var py = Python.import_module("builtins")
-    var arr = py.list()
+    var py_prices = Python.list()
+    var py_deltas = Python.list()
+    var py_gammas = Python.list()
+    var py_vegas = Python.list()
+    var py_success = Python.list()
     for i in range(len(results)):
-        var d = Python.dict(
-            price=PythonObject(results[i].price),
-            delta=PythonObject(results[i].delta),
-            gamma=PythonObject(results[i].gamma),
-            success=PythonObject(results[i].success),
-        )
-        _ = arr.append(d)
-    return arr^
+        _ = py_prices.append(PythonObject(results[i].price))
+        _ = py_deltas.append(PythonObject(results[i].delta))
+        _ = py_gammas.append(PythonObject(results[i].gamma))
+        _ = py_vegas.append(PythonObject(results[i].vega))
+        _ = py_success.append(PythonObject(results[i].success))
+
+    return Python.dict(
+        prices=py_prices,
+        deltas=py_deltas,
+        gammas=py_gammas,
+        vegas=py_vegas,
+        success=py_success,
+    )
 
 
 @export
 def PyInit_fpe_engine() -> PythonObject:
     try:
         var module = PythonModuleBuilder("fpe_engine")
-        module.def_function[py_price_single]("price_single")
-        module.def_function[py_price_batch]("price_batch")
-        module.def_function[py_solve_fpe]("solve_fpe")
+        module.def_function[py_price]("price")
         return module.finalize()
     except e:
         abort(String("Failed to init fpe_engine: ", e))
