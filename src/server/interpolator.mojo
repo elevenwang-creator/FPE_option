@@ -6,7 +6,7 @@ interpolation. Retains bilinear as a fallback for grids too small
 for bicubic (< 4 points in either dimension).
 """
 
-from server.pdf_cache import PDFGrid
+from server.pricing_engine import PDFGrid
 from numerics.utils import clamp_int
 
 
