@@ -2,10 +2,13 @@
 
 Supports multiple backends via dtype management module:
 - Metal (Apple Silicon): Uses Float32
-- CUDA/HIP: Uses Float64
+- CUDA/HIP): Uses Float64
 - CPU fallback: Always available
 
 Kernels use comptime layouts for GPU compatibility.
+
+TODO: Update kernel to support BarrierPayoff option_type dispatch (10 types)
+instead of hard-coded EuropeanCall + barrier knock-out. See server.payoffs.BarrierPayoff.
 """
 
 from std.gpu import block_idx, thread_idx, block_dim
