@@ -5,6 +5,7 @@ from engines.fpe.solver import FPESolver
 from engines.fpe.pdf import pdf_from_cached
 from server.option_types import FpeParams, PricingResult
 from server.payoffs import BarrierPayoff
+from server.greeks import Greeks
 
 
 @fieldwise_init
@@ -76,39 +77,31 @@ struct PricingEngine:
             barrier=fpe_params.barrier,
         )
 
-        var n_strikes = len(fpe_params.strikes)
-        var prices: List[Float64] = []
-        for _ in range(n_strikes):
-            prices.append(0.0)
+        var grid = PDFGrid(
+            pdf=pdf_grid^,
+            s_points=domain.s_points_phys.copy(),
+            v_points=domain.v_points_phys.copy(),
+            T=revised.T,
+            ds_weights=domain.s_weights.copy(),
+            dv_weights=domain.v_weights.copy(),
+        )
 
-        var n_s = len(domain.s_points_phys)
-        var n_v = len(domain.v_points_phys)
+        var greeks = Greeks()
+        var prices = greeks._price_at(grid, payoff)
+        var deltas = greeks.compute_delta(grid, payoff)
+        var gammas = greeks.compute_gamma(grid, payoff)
+        var vegas = greeks.compute_vega(grid, payoff)
+
         var discount = exp(-revised.r * revised.T)
-
-        for i in range(n_s):
-            var S = domain.s_points_phys[i]
-            var payoff_vals = payoff.evaluate(S)
-            var payoff_nonzero = False
-            for k in range(n_strikes):
-                if payoff_vals[k] != 0.0:
-                    payoff_nonzero = True
-                    break
-            if not payoff_nonzero:
-                continue
-            var ds_w = domain.s_weights[i]
-            for j in range(n_v):
-                var pdf_dv = pdf_grid[i][j] * domain.v_weights[j]
-                for k in range(n_strikes):
-                    prices[k] += payoff_vals[k] * pdf_dv * ds_w
-
+        var n_strikes = len(fpe_params.strikes)
         var results: List[PricingResult] = []
         for k in range(n_strikes):
             results.append(
                 PricingResult(
                     price=prices[k] * discount,
-                    delta=0.0,
-                    gamma=0.0,
-                    vega=0.0,
+                    delta=deltas[k],
+                    gamma=gammas[k],
+                    vega=vegas[k],
                     success=True,
                 )
             )
