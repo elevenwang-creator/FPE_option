@@ -10,6 +10,7 @@ from numerics.bspline.basis import BSplineBasis
 from numerics.bspline.recombination import RecombinationBasis, recomb_eval_all, recomb_first_derivative_all
 from numerics.bspline.tensor_product import TensorProductBasis
 from engines.fpe.heston_params import HestonParams
+from numerics.utils.helpers import normalize
 from sparse.csr import CSRMatrix
 from sparse.diag import DiagMatrix
 from sparse.kron import kron
@@ -49,7 +50,7 @@ def _grid_create(
     var app_lo = lb_interm
     var app_hi = center - std / 5.0
     for i in range(n_app):
-        grid.append(app_lo + Float64(i) / Float64(n_app) * (app_hi - app_lo))
+        grid.append(app_lo + Float64(i) / Float64(n_app - 1) * (app_hi - app_lo))
 
     # Dense near mean: center - std/5 to center + std/5
     var n_dense = num_interm // 3
@@ -70,7 +71,7 @@ def _grid_create(
     var leave_lo = center + std / 5.0
     var leave_hi = ub_interm
     for i in range(n_leave):
-        grid.append(leave_lo + Float64(i) / Float64(n_leave) * (leave_hi - leave_lo))
+        grid.append(leave_lo + Float64(i) / Float64(n_leave - 1) * (leave_hi - leave_lo))
 
     # Coarse upper tail: ub_interm to hi
     for i in range(right_trail):
@@ -91,21 +92,7 @@ def _grid_create(
         for i in range(n_zero):
             grid.append(Float64(i) / Float64(n_zero - 1) * 0.01)
 
-    return _sort_unique(grid)^
-
-
-def _normalize_list(x: List[Float64]) -> List[Float64]:
-    if len(x) < 2:
-        return x.copy()
-    var lo = x[0]
-    var hi = x[len(x) - 1]
-    var span = hi - lo
-    if span == 0.0:
-        return x.copy()
-    var result: List[Float64] = []
-    for i in range(len(x)):
-        result.append((x[i] - lo) / span)
-    return result^
+    return _sort_unique(grid)
 
 
 def _sort_unique(mut x: List[Float64]) -> List[Float64]:
@@ -213,6 +200,8 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
     var s_max: Float64
     var v_min: Float64
     var v_max: Float64
+    var s_left_cond: String
+    var s_right_cond: String
 
     def __init__(
         out self,
@@ -220,11 +209,15 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         n_s: Int = 38,
         n_v: Int = 38,
         num_insert: Int = 251,
+        s_left_cond: String = "dirichlet",
+        s_right_cond: String = "neumann",
     ):
         self.s_min = params.S_min
         self.s_max = params.S_max
         self.v_min = params.V_min
         self.v_max = params.V_max
+        self.s_left_cond = s_left_cond
+        self.s_right_cond = s_right_cond
         var center_s = (params.S0 - self.s_min) / (self.s_max - self.s_min)
 
         var s_gen = GenerateKnots(
@@ -256,7 +249,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
             params.V0, 0.001, (self.v_min, self.v_max), num_insert, is_v=True
         )
 
-        var grid_s = _normalize_list(s_grid_phys)
+        var grid_s = normalize(s_grid_phys)
         var grid_v = v_grid_phys.copy()
 
         var num_gauss = (Self.degree_s + Self.degree_v + 1 + 1) // 2
@@ -292,7 +285,7 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         var b_s = BSplineBasis[Self.degree_s](self.s_knots.copy())
         var b_v = BSplineBasis[Self.degree_v](self.v_knots.copy())
         var r_s = RecombinationBasis[Self.degree_s](
-            b_s^, left_cond="dirichlet", right_cond="neumann"
+            b_s^, left_cond=self.s_left_cond, right_cond=self.s_right_cond
         )
         var r_v = RecombinationBasis[Self.degree_v](
             b_v^, left_cond="neumann", right_cond="neumann"
@@ -302,4 +295,4 @@ struct FPEDomain[degree_s: Int = 3, degree_v: Int = 3](Copyable, Movable):
         )
 
     def cached_basis(self) -> FPECachedBasis[Self.degree_s, Self.degree_v]:
-        return FPECachedBasis[Self.degree_s, Self.degree_v](self)^
+        return FPECachedBasis[Self.degree_s, Self.degree_v](self)
