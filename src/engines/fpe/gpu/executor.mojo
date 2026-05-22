@@ -152,9 +152,7 @@ struct GPUFullChainExecutor[B: Int]:
         var pdf = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](pdf_buf)
 
         # Step 1: Generate knots and weights
-        ctx.enqueue_function[
-            generate_knots_gpu_kernel, generate_knots_gpu_kernel
-        ](
+        ctx.enqueue_function[generate_knots_gpu_kernel](
             knots,
             weights,
             params,
@@ -166,12 +164,12 @@ struct GPUFullChainExecutor[B: Int]:
         )
 
         # Step 2: Grid from knots
-        ctx.enqueue_function[grid_gpu_kernel, grid_gpu_kernel](
+        ctx.enqueue_function[grid_gpu_kernel](
             grid_d, knots, n_s_ext, n_v_ext, grid_dim=grid, block_dim=bs
         )
 
         # Step 3: B-spline basis evaluation
-        ctx.enqueue_function[basis_gpu_kernel, basis_gpu_kernel](
+        ctx.enqueue_function[basis_gpu_kernel](
             basis,
             knots,
             n_s_ext,
@@ -182,12 +180,12 @@ struct GPUFullChainExecutor[B: Int]:
         )
 
         # Step 4: Boundary conditions (Dirichlet/Neumann recombination)
-        ctx.enqueue_function[boundary_gpu_kernel, boundary_gpu_kernel](
+        ctx.enqueue_function[boundary_gpu_kernel](
             boundary, basis, n_points, grid_dim=grid, block_dim=bs
         )
 
         # Step 5: System matrix -M^{-1}K assembly
-        ctx.enqueue_function[spmatrix_gpu_kernel, spmatrix_gpu_kernel](
+        ctx.enqueue_function[spmatrix_gpu_kernel](
             spmatrix,
             boundary,
             weights,
@@ -199,7 +197,7 @@ struct GPUFullChainExecutor[B: Int]:
         )
 
         # Step 6: Delta function (bivariate Gaussian)
-        ctx.enqueue_function[delta_gpu_kernel, delta_gpu_kernel](
+        ctx.enqueue_function[delta_gpu_kernel](
             delta,
             grid_d,
             params,
@@ -211,7 +209,7 @@ struct GPUFullChainExecutor[B: Int]:
         )
 
         # Step 7: Initial condition (projected gradient NNLS)
-        ctx.enqueue_function[initial_gpu_kernel, initial_gpu_kernel](
+        ctx.enqueue_function[initial_gpu_kernel](
             initial,
             delta,
             boundary,
@@ -223,7 +221,7 @@ struct GPUFullChainExecutor[B: Int]:
         )
 
         # Step 8: Radau IIA time integration (3-stage, order 5)
-        ctx.enqueue_function[radau5_gpu_kernel, radau5_gpu_kernel](
+        ctx.enqueue_function[radau5_gpu_kernel](
             radau5,
             spmatrix,
             initial,
@@ -235,7 +233,7 @@ struct GPUFullChainExecutor[B: Int]:
         )
 
         # Step 9: PDF integration (Phi * q_terminal)
-        ctx.enqueue_function[integrate_gpu_kernel, integrate_gpu_kernel](
+        ctx.enqueue_function[integrate_gpu_kernel](
             pdf,
             radau5,
             boundary,
@@ -303,15 +301,15 @@ struct GPUFullChainExecutor[B: Int]:
         var lambda_val: Scalar[GPU_DTYPE] = 1e-3
         for _step in range(5):
             # Compute loss
-            ctx.enqueue_function[loss_gpu_kernel, loss_gpu_kernel](
+            ctx.enqueue_function[loss_gpu_kernel](
                 loss_t, price, market, n_options, grid_dim=grid, block_dim=bs
             )
-            ctx.enqueue_function[loss_sum_gpu_kernel, loss_sum_gpu_kernel](
+            ctx.enqueue_function[loss_sum_gpu_kernel](
                 total_loss, loss_t, n_options, grid_dim=grid, block_dim=bs
             )
 
             # LM step with current lambda
-            ctx.enqueue_function[lm_step_gpu_kernel, lm_step_gpu_kernel](
+            ctx.enqueue_function[lm_step_gpu_kernel](
                 new_params,
                 out_params,
                 jacobian,
