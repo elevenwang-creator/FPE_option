@@ -72,17 +72,77 @@ def test_recombination_dirichlet_dirichlet_shape() raises:
     assert_equal(R.ncols, 1)
 
 
+def test_recombination_neumann_neumann_shape() raises:
+    var knots: List[Float64] = [0.0, 0.0, 0.5, 1.0, 1.0]
+    var rb = RecombinationBasis[1](
+        basis=BSplineBasis[1](knots^),
+        left_cond="neumann",
+        right_cond="neumann",
+    )
+
+    var R = rb.recombination_matrix()
+    assert_equal(R.nrows, 3)
+    assert_equal(R.ncols, 1)
+    assert_equal(R.nnz(), 3)
+
+
+def test_recombination_all_four_conditions() raises:
+    var knots: List[Float64] = [0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0]
+    var basis = BSplineBasis[1](knots.copy())
+    var n = basis.num_basis
+
+    var rb_dd = RecombinationBasis[1](
+        basis=basis.copy(),
+        left_cond="dirichlet",
+        right_cond="dirichlet",
+    )
+    var R_dd = rb_dd.recombination_matrix()
+    assert_equal(R_dd.nrows, n)
+    assert_equal(R_dd.ncols, n - 2)
+    assert_equal(R_dd.nnz(), n - 2)
+
+    var rb_dn = RecombinationBasis[1](
+        basis=basis.copy(),
+        left_cond="dirichlet",
+        right_cond="neumann",
+    )
+    var R_dn = rb_dn.recombination_matrix()
+    assert_equal(R_dn.nrows, n)
+    assert_equal(R_dn.ncols, n - 2)
+    assert_equal(R_dn.nnz(), n - 1)
+
+    var rb_nd = RecombinationBasis[1](
+        basis=basis.copy(),
+        left_cond="neumann",
+        right_cond="dirichlet",
+    )
+    var R_nd = rb_nd.recombination_matrix()
+    assert_equal(R_nd.nrows, n)
+    assert_equal(R_nd.ncols, n - 2)
+    assert_equal(R_nd.nnz(), n - 1)
+
+    var rb_nn = RecombinationBasis[1](
+        basis=basis.copy(),
+        left_cond="neumann",
+        right_cond="neumann",
+    )
+    var R_nn = rb_nn.recombination_matrix()
+    assert_equal(R_nn.nrows, n)
+    assert_equal(R_nn.ncols, n - 2)
+    assert_equal(R_nn.nnz(), n)
+
+
 def test_tensor_product_shapes() raises:
     var knots: List[Float64] = [0.0, 0.0, 0.5, 1.0, 1.0]
     var bs = RecombinationBasis[1](
         basis=BSplineBasis[1](knots.copy()),
-        left_cond="newmann",
-        right_cond="newmann",
+        left_cond="neumann",
+        right_cond="neumann",
     )
     var bv = RecombinationBasis[1](
         basis=BSplineBasis[1](knots.copy()),
-        left_cond="newmann",
-        right_cond="newmann",
+        left_cond="neumann",
+        right_cond="neumann",
     )
     var tp = TensorProductBasis[1, 1](basis_s=bs^, basis_v=bv^)
 
@@ -91,7 +151,7 @@ def test_tensor_product_shapes() raises:
     var B = tp.eval_tensor(s_points, v_points)
 
     assert_equal(B.nrows, 4)
-    assert_equal(B.ncols, 9)
+    assert_equal(B.ncols, 1)
 
 
 def main() raises:

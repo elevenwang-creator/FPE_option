@@ -14,8 +14,8 @@ def _make_heston() -> HestonParams:
         T=0.1,
         S0=60.0,
         V0=0.1,
-        S_min=20.0,
-        S_max=150.0,
+        S_min=0.0,
+        S_max=180.0,
         V_min=0.0,
         V_max=1.0,
     )
@@ -54,6 +54,22 @@ def test_up_and_out_call() raises:
     assert_true(results[0].price >= 0.0)
 
 
+def test_down_and_out_call() raises:
+    var h = _make_heston()
+    var fp = FpeParams(
+        heston=h^,
+        n_s=16,
+        n_v=16,
+        barrier=40.0,
+        option_type=2,
+        strikes=[60.0],
+    )
+    var engine = PricingEngine(num_insert=30)
+    var results = engine.price(fp)
+    assert_true(results[0].success)
+    assert_true(results[0].price >= 0.0)
+
+
 def test_multi_strike_european() raises:
     var h = _make_heston()
     var fp = FpeParams(
@@ -80,10 +96,10 @@ def test_invalid_params() raises:
         rho=-0.4,
         r=0.05,
         T=0.1,
-        S0=100.0,
+        S0=60.0,
         V0=0.1,
         S_min=0.0,
-        S_max=150.0,
+        S_max=180.0,
         V_min=0.0,
         V_max=1.0,
     )
@@ -91,14 +107,15 @@ def test_invalid_params() raises:
         heston=h_invalid^,
         n_s=8,
         n_v=8,
-        barrier=90.0,
+        barrier=50.0,
         option_type=6,
         strikes=[60.0],
     )
     var engine = PricingEngine()
     var results = engine.price(fp)
+    assert_true(len(results) >= 1)
     assert_false(results[0].success)
 
 
 def main() raises:
-    test_european_call()
+    TestSuite.discover_tests[__functions_in_module()]().run()

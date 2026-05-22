@@ -32,38 +32,26 @@ struct FpeParams(Copyable, Movable, Writable):
         return True
 
     def revised_heston(self) -> HestonParams:
+        var s_min = self.heston.S_min
+        var s_max = self.heston.S_max
         if self.option_type <= 3:
-            return HestonParams(
-                kappa=self.heston.kappa,
-                theta=self.heston.theta,
-                sigma=self.heston.sigma,
-                rho=self.heston.rho,
-                r=self.heston.r,
-                T=self.heston.T,
-                S0=self.heston.S0,
-                V0=self.heston.V0,
-                S_min=self.barrier,
-                S_max=self.heston.S_max,
-                V_min=self.heston.V_min,
-                V_max=self.heston.V_max,
-            )
+            s_min = self.barrier
         elif self.option_type <= 7:
-            return HestonParams(
-                kappa=self.heston.kappa,
-                theta=self.heston.theta,
-                sigma=self.heston.sigma,
-                rho=self.heston.rho,
-                r=self.heston.r,
-                T=self.heston.T,
-                S0=self.heston.S0,
-                V0=self.heston.V0,
-                S_min=self.heston.S_min,
-                S_max=self.barrier,
-                V_min=self.heston.V_min,
-                V_max=self.heston.V_max,
-            )
-        else:
-            return self.heston.copy()
+            s_max = self.barrier
+        return HestonParams(
+            kappa=self.heston.kappa,
+            theta=self.heston.theta,
+            sigma=self.heston.sigma,
+            rho=self.heston.rho,
+            r=self.heston.r,
+            T=self.heston.T,
+            S0=self.heston.S0,
+            V0=self.heston.V0,
+            S_min=s_min,
+            S_max=s_max,
+            V_min=0.0,
+            V_max=1.0,
+        )
 
     def s_left_cond(self) -> String:
         if self.option_type <= 3:

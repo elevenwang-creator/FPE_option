@@ -46,7 +46,7 @@ def _build_recombination_matrix(
         result.data[dest] = 1.0
         result.indices[dest] = Rcol - 1
         dest += 1
-        result.indptr[n] = dest
+    result.indptr[n] = dest
 
     return result^
 
@@ -69,6 +69,9 @@ struct RecombinationBasis[degree: Int](Movable):
         self._R = _build_recombination_matrix(
             self.basis.num_basis, left_cond, right_cond
         )
+
+    def recombination_matrix(self) -> CSRMatrix:
+        return self._R.copy()
 
 
 def recomb_eval_all(rb: RecombinationBasis, points: List[Float64]) -> CSRMatrix:

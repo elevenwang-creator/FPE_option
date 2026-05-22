@@ -1,6 +1,6 @@
 import numpy as np
-import scipy.sparse as sp
-from FPE_Solver_Final_Version import HestonSolver, GenerateKnots
+#import scipy.sparse as sp
+from docs.python_reference.FPE_Solver_Final_Version import HestonSolver, GenerateKnots
 from time import perf_counter
 
 start_time = perf_counter()
@@ -14,7 +14,7 @@ params = {
     'r': 0.1,
     'T': 0.6,
     'V0': 0.1,
-    'S0': 70.0,
+    'S0': 60.0,
 }
 
 degrees = [3, 3]
@@ -76,10 +76,10 @@ if pdf_result is not None:
     pdf_integral_0 = pdf_0 @ fpe.nodes_weights['v_weights'] @ fpe.nodes_weights['s_weights']
     print(f"PDF integral at t=0: {pdf_integral_0:.10f}")
 
-    print(f"\nVanilla Call Prices:")
+    print("Vanilla Call Prices:")
     for K_strike in [65, 70, 75, 80, 85, 90, 95, 100]:
         payoff = np.maximum(prices - K_strike, 0.0)
-        call_price = np.exp(-params['r'] * 0.0) * np.dot(marginal_s * payoff, fpe.nodes_weights['s_weights'])
+        call_price = np.exp(-params['r'] * params['T']) * np.dot(marginal_s * payoff, fpe.nodes_weights['s_weights'])
         print(f"  K={K_strike}: {call_price:.10f}")
 
 end_time = perf_counter()

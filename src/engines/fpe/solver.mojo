@@ -51,7 +51,7 @@ struct FPESolver[B: Int]:
         var cached = domain.cached_basis()
         var M = mass_from_cached(cached)
         var K = stiffness_from_cached(cached, params)
-        var q0 = initial_condition_from_cached(cached, params, M)
+        var q0 = initial_condition_from_cached(cached, params, M.copy())
         var t_end = params.T
 
         comptime if Self.B == 1:
