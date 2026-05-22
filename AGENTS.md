@@ -2,14 +2,22 @@
 
 ## Tech
 
-- Language: mojo, last version-v0.26.3(Nightly)
-- Environments: pixi management under current directory (using pixi to manage dependencies), pixi run
+- Language: mojo, last version(Nightly)
+- Environments: pixi management under current directory (using pixi to manage dependencies), pixi run: 
+  - commands: 
+    - build: pixi run mojo build -I src ...
+    - run: pixi run mojo run -I src ...
+    - test: pixi run mojo test -I src ...
 - Comment: English
 - Code Style:
   - mojo format with last version, sperately coding each file
   - using existing modules, functions, classes, etc. Don't rewrite them.
-  - following the best practices of mojo language
+  - following the best practices of mojo language.
+  - less is more priciple, highest quality and security is fundamental rules.
 - Must use skills: mojo skills, mojo-syntax, mojo-python-interpolation, mojo-gpu-fundamentals
   - read ./docs/llm-mojo.txt links and searching the internet to learn more about mojo language when you need to.
-  - Firstly use mojo skills to every unknown problem with code 
+  - Firstly use mojo skills to every unknown problem with code
+- Benchmarks
+  - mojo time package
+  - mojo benchmarks package
 

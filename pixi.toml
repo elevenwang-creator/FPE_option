@@ -19,7 +19,8 @@ seaborn = ">=0.13.2,<0.14"
 cvxpy = ">=1.8.2,<2"
 
 [tasks]
-build = "mojo build src/"
+build = "mojo build -I src"
+run = "mojo run -I src"
 test = "mojo run -I src tests/test_sparse.mojo"
 bench = "mojo run -I src benchmarks/run_all.mojo"
 gpu-bench = "mojo run -I src --target-accelerator=metal:1 benchmarks/bench_gpu_batch_pricing.mojo"

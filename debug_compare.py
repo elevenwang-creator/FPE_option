@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.sparse as sp
-from FPE_Solver_Final_Version import HestonSolver, GenerateKnots
+from .docs.python_reference.FPE_Solver_Final_Version import HestonSolver, GenerateKnots
 
 params = {
     'V_range': (0.0, 1.0),

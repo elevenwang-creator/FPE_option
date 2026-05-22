@@ -16,8 +16,9 @@ def price(
     atol: Float64 = 1e-6,
 ) raises -> PricingResult:
     var strikes: List[Float64] = [K]
+    var h_copy = heston.copy()
     var fp = FpeParams(
-        heston=heston^,
+        heston=h_copy^,
         n_s=n_s,
         n_v=n_v,
         barrier=barrier,
@@ -45,8 +46,9 @@ def price_batch(
     if len(options) > 0:
         barrier = options[0][1]
         payoff_type = options[0][2]
+    var h_copy = heston.copy()
     var fp = FpeParams(
-        heston=heston^,
+        heston=h_copy^,
         n_s=n_s,
         n_v=n_v,
         barrier=barrier,

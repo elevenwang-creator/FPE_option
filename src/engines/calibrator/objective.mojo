@@ -93,7 +93,7 @@ struct ObjectiveFunction[B: Int](Copyable, Movable):
             var local_params = _with_maturity(params, maturity)
             var domain = FPEDomain[3, 3](local_params, n_s=8, n_v=8)
             var t_eval: List[Float64] = [0.0, maturity]
-    var q_path = solver.solve(domain, local_params, t_eval^)
+            var q_path = solver.solve(domain, local_params, t_eval^)
             var q_terminal = q_path[len(q_path) - 1].copy()
             var pdf = pdf_comp.compute(domain, q_terminal)
             var model_price = _integrate_call_price(
