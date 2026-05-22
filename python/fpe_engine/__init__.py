@@ -1,119 +1,118 @@
-from typing import Any
+"""FPE Option Pricing Engine — Python binding.
+
+Uses pre-compiled Mojo native module (_fpe_native.so).
+Requires: pixi install && pixi run build
+
+Usage:
+    import fpe_engine
+    result = fpe_engine.price(S0=60.0, K=[100.0], ...)
+"""
+
+import logging
+
+_logger = logging.getLogger("fpe_engine")
 
 try:
-    import mojo.importer  # type: ignore[import-not-found]
-    from fpe_option import price as _mojo_price  # type: ignore[import-not-found]
-    from fpe_option import HestonParams as _HestonParams  # type: ignore[import-not-found]
-    from fpe_option import OptionParams as _OptionParams  # type: ignore[import-not-found]
-    from fpe_option import calibrate as _mojo_calibrate  # type: ignore[import-not-found]
-    from fpe_option import nais_train as _mojo_nais_train  # type: ignore[import-not-found]
-    from fpe_option import nais_vol_surface as _mojo_nais_vol_surface  # type: ignore[import-not-found]
+    from ._fpe_native import price as _native_price
 
-    _MOJO_AVAILABLE = True
-except ImportError:
-    _MOJO_AVAILABLE = False
+    _NATIVE_AVAILABLE = True
+except ImportError as e:
+    _logger.warning("Mojo FPE engine not available: %s", e)
+    _NATIVE_AVAILABLE = False
+except Exception as e:
+    _logger.error("Unexpected error loading Mojo FPE engine: %s", e)
+    _NATIVE_AVAILABLE = False
 
 
 def is_available() -> bool:
-    return _MOJO_AVAILABLE
+    return _NATIVE_AVAILABLE
+
+
+_OPTION_TYPES = {
+    "down_and_in_call": 0,
+    "down_and_in_put": 1,
+    "down_and_out_call": 2,
+    "down_and_out_put": 3,
+    "up_and_in_call": 4,
+    "up_and_in_put": 5,
+    "up_and_out_call": 6,
+    "up_and_out_put": 7,
+    "european_call": 8,
+    "european_put": 9,
+}
+
+_MAX_STRIKES = 1024
 
 
 def price(
-    S: float,
-    K: float,
-    V: float,
-    barrier: float,
-    option_type: int = 1,
-    *,
     kappa: float = 1.2,
     theta: float = 0.05,
     sigma: float = 0.35,
     rho: float = -0.4,
-    r: float = 0.05,
-    T: float = 0.5,
-    S0: float = 100.0,
+    r: float = 0.1,
+    T: float = 0.6,
+    S0: float = 60.0,
     V0: float = 0.1,
-    S_min: float = 50.0,
-    S_max: float = 150.0,
-    V_min: float = 1e-4,
-    V_max: float = 1.0,
+    K: list[float] | float = 100.0,
+    barrier: float = 0.0,
+    option_type: str | int = "european_call",
+    n_s: int = 38,
+    n_v: int = 38,
+    rtol: float = 1e-4,
+    atol: float = 1e-6,
 ) -> dict:
-    if not _MOJO_AVAILABLE:
-        raise RuntimeError("Mojo FPE engine not available. Run: pixi install")
-    heston = _HestonParams(
-        kappa=kappa, theta=theta, sigma=sigma, rho=rho, r=r, T=T,
-        S0=S0, V0=V0, S_min=S_min, S_max=S_max, V_min=V_min, V_max=V_max,
-    )
-    option = _OptionParams(S=S, K=K, V=V, barrier=barrier, option_type=option_type)
-    result = _mojo_price(heston, option)
+    if not _NATIVE_AVAILABLE:
+        raise RuntimeError("Mojo FPE engine not available. Run: pixi install && pixi run build")
+
+    if not (4 <= n_s <= 256):
+        raise ValueError(f"n_s must be in [4, 256], got {n_s}")
+    if not (4 <= n_v <= 256):
+        raise ValueError(f"n_v must be in [4, 256], got {n_v}")
+
+    if isinstance(K, (int, float)):
+        K = [float(K)]
+    else:
+        K = [float(k) for k in K]
+
+    if len(K) == 0:
+        raise ValueError("K must not be empty")
+    if len(K) > _MAX_STRIKES:
+        raise ValueError(f"K list too large, max {_MAX_STRIKES}")
+
+    if isinstance(option_type, str):
+        if option_type not in _OPTION_TYPES:
+            raise ValueError(
+                f"unknown option_type '{option_type}', "
+                f"must be one of: {list(_OPTION_TYPES.keys())}"
+            )
+        option_type_int = _OPTION_TYPES[option_type]
+    else:
+        option_type_int = int(option_type)
+        if not (0 <= option_type_int <= 9):
+            raise ValueError(f"option_type must be 0-9, got {option_type_int}")
+
+    result = _native_price({
+        "kappa": kappa,
+        "theta": theta,
+        "sigma": sigma,
+        "rho": rho,
+        "r": r,
+        "T": T,
+        "S0": S0,
+        "V0": V0,
+        "K": K,
+        "barrier": barrier,
+        "option_type": option_type_int,
+        "n_s": n_s,
+        "n_v": n_v,
+        "rtol": rtol,
+        "atol": atol,
+    })
+
     return {
-        "price": result.price,
-        "delta": result.delta,
-        "gamma": result.gamma,
-        "vega": result.vega,
-        "success": result.success,
+        "prices": list(result["prices"]),
+        "deltas": list(result["deltas"]),
+        "gammas": list(result["gammas"]),
+        "vegas": list(result["vegas"]),
+        "success": list(result["success"]),
     }
-
-
-def calibrate(
-    market_prices: list[float],
-    strikes: list[float],
-    expiries: list[float],
-    params_init: dict | None = None,
-) -> dict:
-    if not _MOJO_AVAILABLE:
-        raise RuntimeError("Mojo FPE engine not available. Run: pixi install")
-    if params_init is None:
-        params_init = {
-            "kappa": 1.2, "theta": 0.05, "sigma": 0.35, "rho": -0.4,
-            "r": 0.05, "T": 0.5, "S0": 100.0, "V0": 0.1,
-            "S_min": 50.0, "S_max": 150.0, "V_min": 1e-4, "V_max": 1.0,
-        }
-    init = _HestonParams(**params_init)
-    fitted = _mojo_calibrate(market_prices, strikes, expiries, init)
-    return {
-        "kappa": fitted.kappa,
-        "theta": fitted.theta,
-        "sigma": fitted.sigma,
-        "rho": fitted.rho,
-        "r": fitted.r,
-        "T": fitted.T,
-    }
-
-
-def nais_train(
-    H: float = 0.07,
-    eta: float = 1.9,
-    rho: float = -0.9,
-    r: float = 0.05,
-    T: float = 0.5,
-    S0: float = 100.0,
-    V0: float = 0.04,
-    epsilon_t: float = 0.04,
-    M: int = 100000,
-    N: int = 100,
-    D: int = 2,
-    iters: int = 1000,
-    lr: float = 1e-3,
-) -> dict:
-    if not _MOJO_AVAILABLE:
-        raise RuntimeError("Mojo FPE engine not available. Run: pixi install")
-    from fpe_option import RoughBergomiParams as _RoughBergomiParams  # type: ignore[import-not-found]
-    bergomi = _RoughBergomiParams(
-        H=H, eta=eta, rho=rho, r=r, T=T, S0=S0, V0=V0,
-        epsilon_t=epsilon_t, M=M, N=N, D=D,
-    )
-    _mojo_nais_train(bergomi, iters=iters, lr=lr)
-    return {"status": "trained"}
-
-
-def nais_vol_surface(
-    strikes: list[float],
-    expiries: list[float],
-    model: Any = None,
-) -> list[list[float]]:
-    if not _MOJO_AVAILABLE:
-        raise RuntimeError("Mojo FPE engine not available. Run: pixi install")
-    if model is None:
-        raise ValueError("Trained NAIS model required. Call nais_train() first.")
-    return _mojo_nais_vol_surface(model, strikes, expiries)

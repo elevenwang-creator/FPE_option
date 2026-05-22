@@ -19,9 +19,11 @@ seaborn = ">=0.13.2,<0.14"
 cvxpy = ">=1.8.2,<2"
 
 [tasks]
-build = "mojo build -I src"
-run = "mojo run -I src"
+build = "bash scripts/build_cpp.sh"
 test = "mojo run -I src tests/test_sparse.mojo"
 bench = "mojo run -I src benchmarks/run_all.mojo"
 gpu-bench = "mojo run -I src --target-accelerator=metal:1 benchmarks/bench_gpu_batch_pricing.mojo"
 gpu-test = "mojo run -I src --target-accelerator=metal:1 tests/test_metal_gpu.mojo"
+
+cpp-run = "bash scripts/run_cpp.sh live_trading"
+py-run = "bash scripts/run_python.sh backtest.py"

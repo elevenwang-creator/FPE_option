@@ -1,8 +1,11 @@
-from server.pricing_engine import PDFGrid
-from server.payoffs import BarrierPayoff
+from std.algorithm import parallelize
+
+from server.pricer import Pricer
+from server.option_types import FpeParams
+from server.simd_utils import vec_central_diff, vec_second_diff
 
 
-struct Greeks:
+struct Greeks(Copyable, Movable):
     var h_s: Float64
     var h_v: Float64
 
@@ -10,45 +13,76 @@ struct Greeks:
         self.h_s = h_s
         self.h_v = h_v
 
-    def _price_at(self, grid: PDFGrid, payoff: BarrierPayoff) -> List[Float64]:
-        _ = self
-        var n_strikes = len(payoff.strikes)
-        var prices: List[Float64] = []
-        for _ in range(n_strikes):
-            prices.append(0.0)
-        for i in range(len(grid.s_points)):
-            var S = grid.s_points[i]
-            var payoff_vals = payoff.evaluate(S)
-            var ds_w = grid.ds_weights[i]
-            for j in range(len(grid.v_points)):
-                var pdf_dv = grid.pdf[i][j] * grid.dv_weights[j]
-                for k in range(n_strikes):
-                    prices[k] += payoff_vals[k] * pdf_dv * ds_w
-        return prices^
+    def _bumped_params(
+        self, base: FpeParams, bump_s: Float64, bump_v: Float64
+    ) -> FpeParams:
+        var h = base.heston.copy()
+        h.S0 = h.S0 + bump_s
+        h.V0 = h.V0 + bump_v
+        return FpeParams(
+            heston=h^,
+            n_s=base.n_s,
+            n_v=base.n_v,
+            barrier=base.barrier,
+            option_type=base.option_type,
+            strikes=base.strikes.copy(),
+        )
 
-    def compute_delta(self, grid: PDFGrid, payoff: BarrierPayoff) -> List[Float64]:
-        _ = grid
-        _ = payoff
-        var n_strikes = len(payoff.strikes)
-        var result: List[Float64] = []
-        for _ in range(n_strikes):
-            result.append(0.0)
-        return result^
+    def compute(
+        self, pricer: Pricer, fpe_params: FpeParams, p_base: List[Float64]
+    ) raises -> Tuple[List[Float64], List[Float64], List[Float64]]:
+        var n_strikes = len(fpe_params.strikes)
+        var fp_up_s = self._bumped_params(fpe_params, self.h_s, 0.0)
+        var fp_dn_s = self._bumped_params(fpe_params, -self.h_s, 0.0)
+        var fp_up_v = self._bumped_params(fpe_params, 0.0, self.h_v)
+        var fp_dn_v = self._bumped_params(fpe_params, 0.0, -self.h_v)
 
-    def compute_gamma(self, grid: PDFGrid, payoff: BarrierPayoff) -> List[Float64]:
-        _ = grid
-        _ = payoff
-        var n_strikes = len(payoff.strikes)
-        var result: List[Float64] = []
+        var p_up_s: List[Float64] = []
+        var p_dn_s: List[Float64] = []
+        var p_up_v: List[Float64] = []
+        var p_dn_v: List[Float64] = []
         for _ in range(n_strikes):
-            result.append(0.0)
-        return result^
+            p_up_s.append(0.0)
+            p_dn_s.append(0.0)
+            p_up_v.append(0.0)
+            p_dn_v.append(0.0)
 
-    def compute_vega(self, grid: PDFGrid, payoff: BarrierPayoff) -> List[Float64]:
-        _ = grid
-        _ = payoff
-        var n_strikes = len(payoff.strikes)
-        var result: List[Float64] = []
-        for _ in range(n_strikes):
-            result.append(0.0)
-        return result^
+        var up_s_ptr = p_up_s.unsafe_ptr()
+        var dn_s_ptr = p_dn_s.unsafe_ptr()
+        var up_v_ptr = p_up_v.unsafe_ptr()
+        var dn_v_ptr = p_dn_v.unsafe_ptr()
+
+        @parameter
+        def _run_bumped(idx: Int):
+            try:
+                if idx == 0:
+                    var r = pricer.price(fp_up_s)
+                    var r_ptr = r.unsafe_ptr()
+                    for k in range(n_strikes):
+                        up_s_ptr[k] = r_ptr[k]
+                elif idx == 1:
+                    var r = pricer.price(fp_dn_s)
+                    var r_ptr = r.unsafe_ptr()
+                    for k in range(n_strikes):
+                        dn_s_ptr[k] = r_ptr[k]
+                elif idx == 2:
+                    var r = pricer.price(fp_up_v)
+                    var r_ptr = r.unsafe_ptr()
+                    for k in range(n_strikes):
+                        up_v_ptr[k] = r_ptr[k]
+                else:
+                    var r = pricer.price(fp_dn_v)
+                    var r_ptr = r.unsafe_ptr()
+                    for k in range(n_strikes):
+                        dn_v_ptr[k] = r_ptr[k]
+            except:
+                pass
+
+        parallelize[_run_bumped](4, 4)
+
+        var deltas = vec_central_diff(p_up_s.copy(), p_dn_s.copy(), self.h_s)
+        var gammas = vec_second_diff(
+            p_up_s.copy(), p_base.copy(), p_dn_s.copy(), self.h_s
+        )
+        var vegas = vec_central_diff(p_up_v.copy(), p_dn_v.copy(), self.h_v)
+        return Tuple(deltas^, gammas^, vegas^)
