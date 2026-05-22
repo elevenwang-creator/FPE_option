@@ -61,7 +61,7 @@ def main() raises:
 
     var sys = SimpleLinearSystem(M^, K^)
     var solver = RadauSparseLinearSolver[SimpleLinearSystem](
-        rtol=1e-3, atol=1e-6, first_step=0.1,
+        rtol=1e-3, atol=1e-6, max_step=0.0, first_step=0.1,
     )
 
     def bench_radau_small_capturing() raises capturing:

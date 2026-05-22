@@ -3,7 +3,7 @@
 from engines.fpe.domain import FPEDomain
 from engines.fpe.heston_params import HestonParams
 from engines.fpe.solver import FPESolver
-from std.python import Python
+from std.time import perf_counter_ns as now
 
 
 def bench_fpe_solve() raises:
@@ -23,14 +23,13 @@ def bench_fpe_solve() raises:
     )
 
     var domain = FPEDomain(params, n_s=8, n_v=8)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.0, 0.1]
 
-    var time_mod = Python.import_module("time")
-    var start = time_mod.perf_counter()
+    var start = now()
     var sol = solver.solve(domain, params, t_eval)
-    var end = time_mod.perf_counter()
-    var elapsed = Float64(py=end) - Float64(py=start)
+    var end = now()
+    var elapsed = Float64(end - start) / 1e9
 
     print("FPE Solve (8x8 grid, degree 3)")
     print("  Solution points:", len(sol))
