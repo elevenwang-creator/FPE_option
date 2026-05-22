@@ -1,4 +1,4 @@
-from numerics.linalg import lu_solve
+from numerics.utils.linalg import lu_solve
 from numerics.utils import abs_f64
 
 

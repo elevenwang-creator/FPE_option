@@ -1,4 +1,4 @@
-from numerics.bspline.recombination import RecombinationBasis, recomb_eval_all, recomb_first_derivative_all
+from numerics.bspline.recombination import RecombinationBasis, recomb_eval_all
 from sparse.csr import CSRMatrix
 from sparse.kron import kron
 
@@ -22,17 +22,3 @@ struct TensorProductBasis[degree_s: Int, degree_v: Int](Movable):
         var Bs = recomb_eval_all(self.basis_s, s_points)
         var Bv = recomb_eval_all(self.basis_v, v_points)
         return kron(Bs, Bv)
-
-    def partial_s(
-        self, s_points: List[Float64], v_points: List[Float64]
-    ) -> CSRMatrix:
-        var dBs = recomb_first_derivative_all(self.basis_s, s_points)
-        var Bv = recomb_eval_all(self.basis_v, v_points)
-        return kron(dBs, Bv)
-
-    def partial_v(
-        self, s_points: List[Float64], v_points: List[Float64]
-    ) -> CSRMatrix:
-        var Bs = recomb_eval_all(self.basis_s, s_points)
-        var dBv = recomb_first_derivative_all(self.basis_v, v_points)
-        return kron(Bs, dBv)

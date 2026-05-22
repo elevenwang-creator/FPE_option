@@ -12,7 +12,7 @@ from sparse.csr import CSRMatrix
 def kron_spmv(
     A: CSRMatrix, B: CSRMatrix, x: List[Float64]
 ) -> List[Float64]:
-    """kron(A, B).spmv(x) = vec(A @ X @ B^T) where X = reshape(x, p, q).
+    """- kron(A, B).spmv(x) = vec(A @ X @ B^T) where X = reshape(x, p, q).
 
     A: m x p, B: n x q, x: p*q
     result: m*n
@@ -72,7 +72,7 @@ def kron_spmv(
 def kron_T_spmv(
     A_T: CSRMatrix, B_T: CSRMatrix, v: List[Float64]
 ) -> List[Float64]:
-    """kron(A, B)^T.spmv(v) = kron(A^T, B^T).spmv(v) = vec(A^T @ V @ B).
+    """- kron(A, B)^T.spmv(v) = kron(A^T, B^T).spmv(v) = vec(A^T @ V @ B).
 
     A^T: p x m, B^T: q x n (i.e. B: n x q), v: m*n
     result: p*q
@@ -131,7 +131,7 @@ def kron_T_spmv(
 def weights_spmv(
     sw: List[Float64], vw: List[Float64], v: List[Float64]
 ) -> List[Float64]:
-    """kron(sw_diag, vw_diag).spmv(v) = elementwise sw[i]*vw[j]*v[k].
+    """- kron(sw_diag, vw_diag).spmv(v) = elementwise sw[i]*vw[j]*v[k].
 
     v: n_s * n_v, result: n_s * n_v
     result[i*n_v + j] = sw[i] * vw[j] * v[i*n_v + j]

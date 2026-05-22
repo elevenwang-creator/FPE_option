@@ -1,8 +1,6 @@
 """B-spline knot generation with Gauss-Legendre quadrature.
 
 Optimized with vectorize + Span + unsafe_ptr:
-- normalize: sequential min/max reduce + vectorize normalize
-- linspace: vectorize fill
 - chebyshev_knots: vectorize angle/cos/transform
 - func_parabolic: insertion sort (O(n) on nearly-sorted) + vectorize eval
 - knots_concat: sorted 3-way merge (O(n)) + vectorize round + unique scan
@@ -13,6 +11,7 @@ from std.algorithm.backend.vectorize import vectorize
 from std.memory import Span
 from std.math import pi, cos, sqrt, abs, round
 from std.sys import simd_width_of
+from numerics.utils.helpers import linspace, normalize
 
 comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
@@ -99,69 +98,6 @@ struct GenerateKnots(Copyable, Movable):
         self.std = std
         self.cheby_knots = cheby_num
 
-    def normalize(self, x: List[Float64]) -> List[Float64]:
-        var n = len(x)
-        if n == 0:
-            return []
-
-        var x_span = Span(x)
-        var min_val = x[0]
-        var max_val = x[0]
-
-        for i in range(n):
-            var v = x_span[i]
-            if v < min_val:
-                min_val = v
-            if v > max_val:
-                max_val = v
-
-        var range_val = max_val - min_val
-        if range_val == 0.0:
-            var result: List[Float64] = []
-            for _ in range(n):
-                result.append(0.0)
-            return result^
-
-        var result = List[Float64]()
-        for _ in range(n):
-            result.append(0.0)
-        var r_ptr = result.unsafe_ptr()
-        var inv_range = 1.0 / range_val
-
-        def vnorm[
-            width: Int
-        ](p_off: Int) {read min_val, read inv_range, read x_span, read r_ptr}:
-            for w in range(width):
-                r_ptr[p_off + w] = (x_span[p_off + w] - min_val) * inv_range
-
-        vectorize[SIMD_W](n, vnorm)
-
-        return result^
-
-    def linspace(
-        self, start: Float64, stop: Float64, count: Int
-    ) -> List[Float64]:
-        var out = List[Float64]()
-        if count <= 0:
-            return out^
-        if count == 1:
-            out.append(start)
-            return out^
-
-        for _ in range(count):
-            out.append(0.0)
-
-        var step = (stop - start) / Float64(count - 1)
-        var r_ptr = out.unsafe_ptr()
-
-        def vfill[width: Int](p_off: Int) {read start, read step, read r_ptr}:
-            for w in range(width):
-                r_ptr[p_off + w] = start + Float64(p_off + w) * step
-
-        vectorize[SIMD_W](count, vfill)
-
-        return out^
-
     def func_parabolic(
         self, n: Int, boundary: Tuple[Float64, Float64]
     ) -> Tuple[Int, List[Float64]]:
@@ -170,7 +106,7 @@ struct GenerateKnots(Copyable, Movable):
         var centor = self.center
 
         var divide = sqrt((high_y - centor) / (centor - low_y)) + 1.0
-        var n_adj = n
+        var n_adj: Int
         if Float64(n) % divide == 0.0:
             n_adj = n
         else:
@@ -183,7 +119,7 @@ struct GenerateKnots(Copyable, Movable):
 
         var upward = sqrt(2.0 * (high_y - centor) / a) + factor
 
-        var x = self.linspace(0.0, upward, n_adj - 1)
+        var x = linspace(0.0, upward, n_adj - 1)
         x.append(factor)
 
         var x_len = len(x)
@@ -332,7 +268,7 @@ struct GenerateKnots(Copyable, Movable):
     def generate_knots(self) -> List[Float64]:
         var p = self.degree
         var boundary = self.boundary
-        var boundary_normal = self.normalize([boundary[0], boundary[1]])
+        var boundary_normal = normalize([boundary[0], boundary[1]])
         var mean = self.mean
         var std = self.std
         var x_min = mean - 4.5 * std
@@ -346,7 +282,7 @@ struct GenerateKnots(Copyable, Movable):
         var internal_knots: List[Float64] = []
 
         if self.method == "uniform":
-            internal_knots = self.linspace(0.0, 1.0, internal_num)
+            internal_knots = linspace(0.0, 1.0, internal_num)
         elif self.method == "non-uniform":
             var x_knots = self.chebyshev_knots(n_knots, x_min, x_max)
             var x_normal: List[Float64] = []

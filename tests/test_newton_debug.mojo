@@ -2,7 +2,7 @@
 
 from numerics.ode.radau import RadauSparseLinearSolver, LinearODESystem
 from numerics.ode.types import ODESolution
-from numerics.sparse_lu import SparseLU
+from numerics.utils.sparse_lu import SparseLU
 from sparse.csr import CSRMatrix
 from sparse.csc import CSCMatrix, csr_to_csc
 from sparse.ops import add, scale

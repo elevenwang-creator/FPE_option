@@ -51,8 +51,8 @@ def generate_knots_gpu_kernel(
 
     var i = tid
     while i < n_s_ext:
-        var val: Float64 = 0.0
-        var w_val: Float64 = 0.0
+        var val: Float64
+        var w_val: Float64
         if i < degree:
             val = s_min
             w_val = 0.5 * (s_max - s_min) / Float64(n_s - 1)
@@ -89,8 +89,8 @@ def generate_knots_gpu_kernel(
 
     var j = tid
     while j < n_v_ext:
-        var val_v: Float64 = 0.0
-        var w_val_v: Float64 = 0.0
+        var val_v: Float64
+        var w_val_v: Float64
         if j < degree:
             val_v = v_min
             w_val_v = 0.5 * (v_max - v_min) / Float64(n_v - 1)

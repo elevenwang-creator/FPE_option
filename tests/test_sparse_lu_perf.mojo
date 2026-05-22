@@ -1,6 +1,6 @@
 """Performance test for SparseLU with larger matrices."""
 
-from numerics.sparse_lu import SparseLU
+from numerics.utils.sparse_lu import SparseLU
 from sparse.csc import CSCMatrix
 from sparse.csr import CSRMatrix
 from numerics.utils import abs_f64

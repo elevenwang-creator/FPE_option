@@ -1,4 +1,4 @@
-from numerics.linalg import lu_solve, dense_matvec
+from numerics.utils.linalg import lu_solve, dense_matvec
 from numerics.utils import abs_f64
 from std.testing import assert_true, TestSuite
 
