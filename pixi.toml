@@ -17,6 +17,11 @@ scipy = ">=1.17.1,<2"
 numpy = ">=2.4.3,<3"
 seaborn = ">=0.13.2,<0.14"
 cvxpy = ">=1.8.2,<2"
+ipykernel = ">=7.1.0,<8"
+pytest = ">=9.0.3,<10"
+polars = ">=1.41.0,<2"
+plotly = ">=6.6.0,<7"
+nbformat = ">=5.10.4,<6"
 
 [tasks]
 build = "bash scripts/build_cpp.sh"
