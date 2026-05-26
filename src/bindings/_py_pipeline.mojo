@@ -10,9 +10,13 @@ from bindings._convert import (
 from sparse.csr import CSRMatrix
 
 
-@fieldwise_init
 struct PyComputePipeline(Writable, Movable):
-    var inner: ComputePipeline
+    var inner: UnsafePointer[ComputePipeline, MutExternalOrigin]
+
+    def __init__(out self, var inner: ComputePipeline) raises:
+        var ptr = alloc[ComputePipeline](1)
+        ptr.init_pointee_move(inner^)
+        self.inner = ptr
 
     @staticmethod
     def py_init(out self: Self, args: PythonObject, kwargs: PythonObject) raises:
@@ -22,7 +26,7 @@ struct PyComputePipeline(Writable, Movable):
     @staticmethod
     def knots(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var knot_tup = self_ptr[].inner.knots()
+        var knot_tup = self_ptr[].inner[].knots()
         var s = knot_tup[0].copy()
         var v = knot_tup[1].copy()
         return PyKnotsResult(s=s^, v=v^).to_python_object()
@@ -30,7 +34,7 @@ struct PyComputePipeline(Writable, Movable):
     @staticmethod
     def grid_points(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var gp_tup = self_ptr[].inner.grid_points()
+        var gp_tup = self_ptr[].inner[].grid_points()
         var s = gp_tup[0].copy()
         var v = gp_tup[1].copy()
         var sw = gp_tup[2].copy()
@@ -40,7 +44,7 @@ struct PyComputePipeline(Writable, Movable):
     @staticmethod
     def basis_1d(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var b1_tup = self_ptr[].inner.basis_1d()
+        var b1_tup = self_ptr[].inner[].basis_1d()
         var Bs = b1_tup[0].copy()
         var dBs = b1_tup[1].copy()
         var Bv = b1_tup[2].copy()
@@ -53,25 +57,25 @@ struct PyComputePipeline(Writable, Movable):
     @staticmethod
     def basis_2d(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var B_2d = self_ptr[].inner.basis_2d()
+        var B_2d = self_ptr[].inner[].basis_2d()
         return _csr_to_py(B_2d^).to_python_object()
 
     @staticmethod
     def initial_condition(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var q0 = self_ptr[].inner.initial_condition()
+        var q0 = self_ptr[].inner[].initial_condition()
         return PyListResult(data=q0^).to_python_object()
 
     @staticmethod
     def solve(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var sol = self_ptr[].inner.solve()
+        var sol = self_ptr[].inner[].solve()
         return PyGrid2DResult(data=sol^).to_python_object()
 
     @staticmethod
     def pdf(py_self: PythonObject) raises -> PythonObject:
         var self_ptr = py_self.downcast_value_ptr[Self]()
-        var pdf_grid = self_ptr[].inner.pdf()
+        var pdf_grid = self_ptr[].inner[].pdf()
         return PyGrid2DResult(data=pdf_grid^).to_python_object()
 
     @staticmethod
@@ -87,7 +91,7 @@ struct PyComputePipeline(Writable, Movable):
             strikes.append(Float64(py=K_obj))
         else:
             raise Error("K must be float, int, or list of floats")
-        var prices = self_ptr[].inner.price_at(strikes)
+        var prices = self_ptr[].inner[].price_at(strikes)
         return PyListResult(data=prices^).to_python_object()
 
     @staticmethod
@@ -103,7 +107,7 @@ struct PyComputePipeline(Writable, Movable):
             strikes.append(Float64(py=K_obj))
         else:
             raise Error("K must be float, int, or list of floats")
-        var g_tup = self_ptr[].inner.greeks(strikes)
+        var g_tup = self_ptr[].inner[].greeks(strikes)
         var deltas = g_tup[0].copy()
         var gammas = g_tup[1].copy()
         var vegas = g_tup[2].copy()
