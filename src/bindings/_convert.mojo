@@ -69,8 +69,8 @@ struct PyBasis1DResult(ConvertibleToPython, Movable, Copyable):
 
     def to_python_object(var self) raises -> PythonObject:
         return Python.dict(
-            Bs=PythonObject(self.Bs), dBs=PythonObject(self.dBs),
-            Bv=PythonObject(self.Bv), dBv=PythonObject(self.dBv),
+            Bs=self.Bs.copy().to_python_object(), dBs=self.dBs.copy().to_python_object(),
+            Bv=self.Bv.copy().to_python_object(), dBv=self.dBv.copy().to_python_object(),
         )
 
 @fieldwise_init
