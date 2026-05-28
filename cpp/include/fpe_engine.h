@@ -2,51 +2,104 @@
 #define FPE_ENGINE_H
 
 #include <stdint.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct {
-    double price;
-    double delta;
-    double gamma;
-    double vega;
-    int32_t success;
-} FpePriceResult;
+typedef struct FpeCompute FpeCompute;
 
-#define FPE_ERR_OK              0
-#define FPE_ERR_NULL_K         -1
-#define FPE_ERR_NULL_OUT       -2
-#define FPE_ERR_INVALID_NSTRIKES -3
-#define FPE_ERR_BUFFER_TOO_SMALL -4
-#define FPE_ERR_INVALID_PARAMS -5
-#define FPE_ERR_SOLVER_FAILED  -6
-#define FPE_ERR_TOO_MANY_STRIKES -7
+struct FpeVecResult {
+    double* data;
+    int32_t len;
+};
 
-#define FPE_MAX_STRIKES 1024
+struct FpeVec2Result {
+    double* s_data;
+    int32_t s_len;
+    double* v_data;
+    int32_t v_len;
+};
 
-extern int32_t fpe_price(
-    double kappa,
-    double theta,
-    double sigma,
-    double rho,
-    double r,
-    double T,
-    double S0,
-    double V0,
-    const double* K,
-    int32_t n_strikes,
-    double barrier,
-    int32_t option_type,
-    int32_t n_s,
-    int32_t n_v,
-    double rtol,
-    double atol,
-    FpePriceResult* out,
-    int32_t out_capacity
+struct FpeGridPtsResult {
+    double* s_data;
+    int32_t s_len;
+    double* v_data;
+    int32_t v_len;
+    double* sw_data;
+    double* vw_data;
+};
+
+struct FpeMatResult {
+    double* data;
+    int32_t n_rows;
+    int32_t n_cols;
+};
+
+struct FpeGreeksResult {
+    double* delta;
+    double* gamma;
+    double* vega;
+    int32_t len;
+};
+
+struct FpeOneshotResult {
+    double* price;
+    double* delta;
+    double* gamma;
+    double* vega;
+    int32_t len;
+};
+
+extern FpeCompute* fpe_compute_create(
+    double kappa, double theta, double sigma, double rho,
+    double r, double T, double S0, double V0,
+    int32_t n_s, int32_t n_v,
+    double barrier, int32_t option_type,
+    int32_t num_insert
 );
+
+extern void fpe_compute_destroy(FpeCompute* ptr);
+
+extern struct FpeVec2Result fpe_compute_knots(FpeCompute* ptr);
+
+extern struct FpeGridPtsResult fpe_compute_grid_points(FpeCompute* ptr);
+
+extern struct FpeVecResult fpe_compute_initial_condition(FpeCompute* ptr);
+
+extern struct FpeMatResult fpe_compute_solve(FpeCompute* ptr);
+
+extern struct FpeMatResult fpe_compute_pdf(FpeCompute* ptr);
+
+extern struct FpeVecResult fpe_compute_price(
+    FpeCompute* ptr,
+    const double* K,
+    int32_t n_K
+);
+
+extern struct FpeGreeksResult fpe_compute_greeks(
+    FpeCompute* ptr,
+    const double* K,
+    int32_t n_K,
+    double rel_s,
+    double rel_v
+);
+
+extern struct FpeOneshotResult fpe_price_oneshot(
+    double kappa, double theta, double sigma, double rho,
+    double r, double T, double S0, double V0,
+    const double* K, int32_t n_K,
+    double barrier, int32_t option_type,
+    int32_t n_s, int32_t n_v,
+    int32_t num_insert
+);
+
+extern void fpe_compute_free_vec(struct FpeVecResult* r);
+extern void fpe_compute_free_vec2(struct FpeVec2Result* r);
+extern void fpe_compute_free_grid_pts(struct FpeGridPtsResult* r);
+extern void fpe_compute_free_mat(struct FpeMatResult* r);
+extern void fpe_compute_free_greeks(struct FpeGreeksResult* r);
+extern void fpe_compute_free_oneshot(struct FpeOneshotResult* r);
 
 #ifdef __cplusplus
 }
