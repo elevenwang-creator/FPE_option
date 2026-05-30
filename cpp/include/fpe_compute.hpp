@@ -42,34 +42,34 @@ class FpeCompute {
     mutable std::optional<std::vector<std::vector<double>>> solve_;
     mutable std::optional<std::vector<std::vector<double>>> pdf_;
 
-    static std::vector<double> vec_from_c(FpeVecResult&& r) {
+    static std::vector<double> vec_from_c(FpeVecResult& r) {
         std::vector<double> v;
-        if (r.data && r.len > 0) {
+        if (r.len > 0) {
             v.assign(r.data, r.data + r.len);
         }
         fpe_compute_free_vec(&r);
         return v;
     }
 
-    static KnotsResult knots_from_c(FpeVec2Result&& r) {
+    static KnotsResult knots_from_c(FpeVec2Result& r) {
         KnotsResult k;
-        if (r.s_data && r.s_len > 0) {
+        if (r.s_len > 0) {
             k.s.assign(r.s_data, r.s_data + r.s_len);
         }
-        if (r.v_data && r.v_len > 0) {
+        if (r.v_len > 0) {
             k.v.assign(r.v_data, r.v_data + r.v_len);
         }
         fpe_compute_free_vec2(&r);
         return k;
     }
 
-    static GridPointsResult grid_from_c(FpeGridPtsResult&& r) {
+    static GridPointsResult grid_from_c(FpeGridPtsResult& r) {
         GridPointsResult g;
-        if (r.s_data && r.s_len > 0) {
+        if (r.s_len > 0) {
             g.s.assign(r.s_data, r.s_data + r.s_len);
             g.s_weights.assign(r.sw_data, r.sw_data + r.s_len);
         }
-        if (r.v_data && r.v_len > 0) {
+        if (r.v_len > 0) {
             g.v.assign(r.v_data, r.v_data + r.v_len);
             g.v_weights.assign(r.vw_data, r.vw_data + r.v_len);
         }
@@ -77,9 +77,9 @@ class FpeCompute {
         return g;
     }
 
-    static std::vector<std::vector<double>> mat_from_c(FpeMatResult&& r) {
+    static std::vector<std::vector<double>> mat_from_c(FpeMatResult& r) {
         std::vector<std::vector<double>> m;
-        if (!r.data || r.n_rows == 0 || r.n_cols == 0) {
+        if (r.n_rows == 0 || r.n_cols == 0) {
             fpe_compute_free_mat(&r);
             return m;
         }
@@ -91,9 +91,9 @@ class FpeCompute {
         return m;
     }
 
-    static GreeksResult greeks_from_c(FpeGreeksResult&& r) {
+    static GreeksResult greeks_from_c(FpeGreeksResult& r) {
         GreeksResult g;
-        if (r.delta && r.len > 0) {
+        if (r.len > 0) {
             g.delta.assign(r.delta, r.delta + r.len);
             g.gamma.assign(r.gamma, r.gamma + r.len);
             g.vega.assign(r.vega, r.vega + r.len);
@@ -129,13 +129,14 @@ public:
     FpeCompute& operator=(const FpeCompute&) = delete;
 
     FpeCompute(FpeCompute&& o) noexcept
-        : ptr_(o.ptr_) {
+        : ptr_(o.ptr_)
+        , knots_(std::move(o.knots_))
+        , grid_points_(std::move(o.grid_points_))
+        , initial_condition_(std::move(o.initial_condition_))
+        , solve_(std::move(o.solve_))
+        , pdf_(std::move(o.pdf_))
+    {
         o.ptr_ = nullptr;
-        knots_ = std::move(o.knots_);
-        grid_points_ = std::move(o.grid_points_);
-        initial_condition_ = std::move(o.initial_condition_);
-        solve_ = std::move(o.solve_);
-        pdf_ = std::move(o.pdf_);
     }
 
     FpeCompute& operator=(FpeCompute&& o) noexcept {
@@ -155,46 +156,67 @@ public:
     bool valid() const { return ptr_ != nullptr; }
 
     KnotsResult knots() const {
+        if (!ptr_) return {};
         if (!knots_) {
-            knots_ = knots_from_c(fpe_compute_knots(ptr_));
+            FpeVec2Result r{};
+            fpe_compute_knots(ptr_, &r);
+            knots_ = knots_from_c(r);
         }
         return knots_.value();
     }
 
     GridPointsResult grid_points() const {
+        if (!ptr_) return {};
         if (!grid_points_) {
-            grid_points_ = grid_from_c(fpe_compute_grid_points(ptr_));
+            FpeGridPtsResult r{};
+            fpe_compute_grid_points(ptr_, &r);
+            grid_points_ = grid_from_c(r);
         }
         return grid_points_.value();
     }
 
-    std::vector<double> initial_condition() {
+    std::vector<double> initial_condition() const {
+        if (!ptr_) return {};
         if (!initial_condition_) {
-            initial_condition_ = vec_from_c(fpe_compute_initial_condition(ptr_));
+            FpeVecResult r{};
+            fpe_compute_initial_condition(ptr_, &r);
+            initial_condition_ = vec_from_c(r);
         }
         return initial_condition_.value();
     }
 
-    std::vector<std::vector<double>> solve() {
+    std::vector<std::vector<double>> solve() const {
+        if (!ptr_) return {};
         if (!solve_) {
-            solve_ = mat_from_c(fpe_compute_solve(ptr_));
+            FpeMatResult r{};
+            fpe_compute_solve(ptr_, &r);
+            solve_ = mat_from_c(r);
         }
         return solve_.value();
     }
 
-    std::vector<std::vector<double>> pdf() {
+    std::vector<std::vector<double>> pdf() const {
+        if (!ptr_) return {};
         if (!pdf_) {
-            pdf_ = mat_from_c(fpe_compute_pdf(ptr_));
+            FpeMatResult r{};
+            fpe_compute_pdf(ptr_, &r);
+            pdf_ = mat_from_c(r);
         }
         return pdf_.value();
     }
 
-    std::vector<double> price(const std::vector<double>& K) {
-        return vec_from_c(fpe_compute_price(ptr_, K.data(), int32_t(K.size())));
+    std::vector<double> price(const std::vector<double>& K) const {
+        if (!ptr_) return {};
+        FpeVecResult r{};
+        fpe_compute_price(ptr_, K.data(), K.empty() ? 0 : int32_t(K.size()), &r);
+        return vec_from_c(r);
     }
 
-    GreeksResult greeks(const std::vector<double>& K, double rel_s = 0.01, double rel_v = 0.1) {
-        return greeks_from_c(fpe_compute_greeks(ptr_, K.data(), int32_t(K.size()), rel_s, rel_v));
+    GreeksResult greeks(const std::vector<double>& K, double rel_s = 0.01, double rel_v = 0.1) const {
+        if (!ptr_) return {};
+        FpeGreeksResult r{};
+        fpe_compute_greeks(ptr_, K.data(), K.empty() ? 0 : int32_t(K.size()), rel_s, rel_v, &r);
+        return greeks_from_c(r);
     }
 
     static OneshotResult price_oneshot(
@@ -205,13 +227,17 @@ public:
         int32_t n_s, int32_t n_v,
         int32_t num_insert = 50
     ) {
-        auto raw = fpe_price_oneshot(
-            kappa, theta, sigma, rho, r, T, S0, V0,
-            K.data(), int32_t(K.size()),
-            barrier, option_type, n_s, n_v, num_insert
-        );
+        FpeOneshotResult raw{};
+        if (!K.empty()) {
+            fpe_price_oneshot(
+                kappa, theta, sigma, rho, r, T, S0, V0,
+                K.data(), int32_t(K.size()),
+                barrier, option_type, n_s, n_v, num_insert,
+                &raw
+            );
+        }
         OneshotResult o;
-        if (raw.price && raw.len > 0) {
+        if (raw.len > 0) {
             o.price.assign(raw.price, raw.price + raw.len);
             o.delta.assign(raw.delta, raw.delta + raw.len);
             o.gamma.assign(raw.gamma, raw.gamma + raw.len);

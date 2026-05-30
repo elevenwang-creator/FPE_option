@@ -28,8 +28,12 @@ struct PricingEngine:
         )
         var p_base = pricer.price(fpe_params)
 
-        var greeks = Greeks()
-        var g = greeks.compute(pricer, fpe_params, p_base)
+        var rel_s: Float64 = 0.01
+        var rel_v: Float64 = 0.1
+        var h_s = rel_s * fpe_params.heston.S0
+        var h_v = rel_v * fpe_params.heston.V0
+        var greeks = Greeks(h_s=h_s, h_v=h_v, num_insert=self.num_insert)
+        var g = greeks.compute(fpe_params, p_base)
         var deltas = g[0].copy()
         var gammas = g[1].copy()
         var vegas = g[2].copy()

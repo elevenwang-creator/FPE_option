@@ -7,7 +7,8 @@ from engines.fpe.solver import FPESolver
 from server.option_types import FpeParams
 from server.payoffs import BarrierPayoff
 from server.pricer import PDFGrid, _price_at
-from server.simd_utils import vec_central_diff, vec_second_diff, vec_scale
+from server.greeks import Greeks
+from server.simd_utils import vec_scale
 from sparse.csr import CSRMatrix
 from sparse.kron import kron
 from std.math import exp
@@ -16,6 +17,7 @@ from std.math import exp
 struct ComputePipeline(Movable):
     var fp: FpeParams
     var heston: HestonParams
+    var _num_insert: Int
     var domain: FPEDomain[3, 3]
     var cached: FPECachedBasis[3, 3]
     var M: CSRMatrix
@@ -28,12 +30,13 @@ struct ComputePipeline(Movable):
         if not fp.is_valid():
             raise Error("invalid FPE parameters")
         self.fp = fp^
+        self._num_insert = num_insert
         self.heston = self.fp.revised_heston()
         self.domain = FPEDomain[3, 3](
             self.heston,
             n_s=self.fp.n_s,
             n_v=self.fp.n_v,
-            num_insert=num_insert,
+            num_insert=self._num_insert,
             s_left_cond=self.fp.s_left_cond(),
             s_right_cond=self.fp.s_right_cond(),
         )
@@ -143,105 +146,13 @@ struct ComputePipeline(Movable):
         var base_price = self.price_at(strikes)
         var h_s = rel_s * self.heston.S0
         var h_v = rel_v * self.heston.V0
-
-        var fp_s_up = FpeParams(
-            heston=HestonParams(
-                kappa=self.heston.kappa,
-                theta=self.heston.theta,
-                sigma=self.heston.sigma,
-                rho=self.heston.rho,
-                r=self.heston.r,
-                T=self.heston.T,
-                S0=self.heston.S0 + h_s,
-                V0=self.heston.V0,
-                S_min=self.heston.S_min,
-                S_max=self.heston.S_max,
-                V_min=self.heston.V_min,
-                V_max=self.heston.V_max,
-            ),
+        var fp_bumped = FpeParams(
+            heston=self.heston.copy(),
             n_s=self.fp.n_s,
             n_v=self.fp.n_v,
             barrier=self.fp.barrier,
             option_type=self.fp.option_type,
             strikes=strikes.copy(),
         )
-        var pipe_s_up = ComputePipeline(fp_s_up^)
-        var price_s_up = pipe_s_up.price_at(strikes)
-
-        var fp_s_dn = FpeParams(
-            heston=HestonParams(
-                kappa=self.heston.kappa,
-                theta=self.heston.theta,
-                sigma=self.heston.sigma,
-                rho=self.heston.rho,
-                r=self.heston.r,
-                T=self.heston.T,
-                S0=self.heston.S0 - h_s,
-                V0=self.heston.V0,
-                S_min=self.heston.S_min,
-                S_max=self.heston.S_max,
-                V_min=self.heston.V_min,
-                V_max=self.heston.V_max,
-            ),
-            n_s=self.fp.n_s,
-            n_v=self.fp.n_v,
-            barrier=self.fp.barrier,
-            option_type=self.fp.option_type,
-            strikes=strikes.copy(),
-        )
-        var pipe_s_dn = ComputePipeline(fp_s_dn^)
-        var price_s_dn = pipe_s_dn.price_at(strikes)
-
-        var fp_v_up = FpeParams(
-            heston=HestonParams(
-                kappa=self.heston.kappa,
-                theta=self.heston.theta,
-                sigma=self.heston.sigma,
-                rho=self.heston.rho,
-                r=self.heston.r,
-                T=self.heston.T,
-                S0=self.heston.S0,
-                V0=self.heston.V0 + h_v,
-                S_min=self.heston.S_min,
-                S_max=self.heston.S_max,
-                V_min=self.heston.V_min,
-                V_max=self.heston.V_max,
-            ),
-            n_s=self.fp.n_s,
-            n_v=self.fp.n_v,
-            barrier=self.fp.barrier,
-            option_type=self.fp.option_type,
-            strikes=strikes.copy(),
-        )
-        var pipe_v_up = ComputePipeline(fp_v_up^)
-        var price_v_up = pipe_v_up.price_at(strikes)
-
-        var fp_v_dn = FpeParams(
-            heston=HestonParams(
-                kappa=self.heston.kappa,
-                theta=self.heston.theta,
-                sigma=self.heston.sigma,
-                rho=self.heston.rho,
-                r=self.heston.r,
-                T=self.heston.T,
-                S0=self.heston.S0,
-                V0=self.heston.V0 - h_v,
-                S_min=self.heston.S_min,
-                S_max=self.heston.S_max,
-                V_min=self.heston.V_min,
-                V_max=self.heston.V_max,
-            ),
-            n_s=self.fp.n_s,
-            n_v=self.fp.n_v,
-            barrier=self.fp.barrier,
-            option_type=self.fp.option_type,
-            strikes=strikes.copy(),
-        )
-        var pipe_v_dn = ComputePipeline(fp_v_dn^)
-        var price_v_dn = pipe_v_dn.price_at(strikes)
-
-        var deltas = vec_central_diff(price_s_up, price_s_dn, h_s)
-        var vegas = vec_central_diff(price_v_up, price_v_dn, h_v)
-        var gammas = vec_second_diff(price_s_up, base_price, price_s_dn, h_s)
-
-        return (deltas^, gammas^, vegas^)
+        var g = Greeks(h_s=h_s, h_v=h_v, num_insert=self._num_insert)
+        return g.compute(fp_bumped^, base_price)

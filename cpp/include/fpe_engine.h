@@ -61,37 +61,40 @@ extern FpeCompute* fpe_compute_create(
 
 extern void fpe_compute_destroy(FpeCompute* ptr);
 
-extern struct FpeVec2Result fpe_compute_knots(FpeCompute* ptr);
+extern void fpe_compute_knots(FpeCompute* ptr, struct FpeVec2Result* result);
 
-extern struct FpeGridPtsResult fpe_compute_grid_points(FpeCompute* ptr);
+extern void fpe_compute_grid_points(FpeCompute* ptr, struct FpeGridPtsResult* result);
 
-extern struct FpeVecResult fpe_compute_initial_condition(FpeCompute* ptr);
+extern void fpe_compute_initial_condition(FpeCompute* ptr, struct FpeVecResult* result);
 
-extern struct FpeMatResult fpe_compute_solve(FpeCompute* ptr);
+extern void fpe_compute_solve(FpeCompute* ptr, struct FpeMatResult* result);
 
-extern struct FpeMatResult fpe_compute_pdf(FpeCompute* ptr);
+extern void fpe_compute_pdf(FpeCompute* ptr, struct FpeMatResult* result);
 
-extern struct FpeVecResult fpe_compute_price(
+extern void fpe_compute_price(
     FpeCompute* ptr,
     const double* K,
-    int32_t n_K
+    int32_t n_K,
+    struct FpeVecResult* result
 );
 
-extern struct FpeGreeksResult fpe_compute_greeks(
+extern void fpe_compute_greeks(
     FpeCompute* ptr,
     const double* K,
     int32_t n_K,
     double rel_s,
-    double rel_v
+    double rel_v,
+    struct FpeGreeksResult* result
 );
 
-extern struct FpeOneshotResult fpe_price_oneshot(
+extern void fpe_price_oneshot(
     double kappa, double theta, double sigma, double rho,
     double r, double T, double S0, double V0,
     const double* K, int32_t n_K,
     double barrier, int32_t option_type,
     int32_t n_s, int32_t n_v,
-    int32_t num_insert
+    int32_t num_insert,
+    struct FpeOneshotResult* result
 );
 
 extern void fpe_compute_free_vec(struct FpeVecResult* r);
@@ -103,6 +106,15 @@ extern void fpe_compute_free_oneshot(struct FpeOneshotResult* r);
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+static_assert(sizeof(struct FpeVecResult) == 16, "FpeVecResult layout mismatch");
+static_assert(sizeof(struct FpeVec2Result) == 32, "FpeVec2Result layout mismatch");
+static_assert(sizeof(struct FpeGridPtsResult) == 48, "FpeGridPtsResult layout mismatch");
+static_assert(sizeof(struct FpeMatResult) == 16, "FpeMatResult layout mismatch");
+static_assert(sizeof(struct FpeGreeksResult) == 32, "FpeGreeksResult layout mismatch");
+static_assert(sizeof(struct FpeOneshotResult) == 40, "FpeOneshotResult layout mismatch");
 #endif
 
 #endif

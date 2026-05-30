@@ -34,13 +34,14 @@ pytest = ">=9.0.3,<10"
 polars = ">=1.41.0,<2"
 plotly = ">=6.6.0,<7"
 nbformat = ">=5.10.4,<6"
+nbconvert = ">=7.17.1,<8"
 
 [tasks]
 build = "bash scripts/build_cpp.sh"
-test = "mojo run -I src tests/test_sparse.mojo"
-bench = "mojo run -I src benchmarks/run_all.mojo"
-gpu-bench = "mojo run -I src --target-accelerator=metal:1 benchmarks/bench_gpu_batch_pricing.mojo"
+test = "python -m pytest tests/test_pricer_stepwise.py -v"
+test-mojo = "mojo test -I src tests/"
+bench = "mojo run -I src benchmarks/bench_fpe_solve.mojo"
 gpu-test = "mojo run -I src --target-accelerator=metal:1 tests/test_metal_gpu.mojo"
 
-cpp-run = "bash scripts/run_cpp.sh live_trading"
+cpp-run = "bash scripts/run_cpp.sh demo"
 py-run = "bash scripts/run_python.sh backtest.py"

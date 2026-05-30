@@ -39,7 +39,7 @@ def _price_at(grid: PDFGrid, payoff: BarrierPayoff) -> List[Float64]:
         vectorize[SIMD_W](n_v, cp_row)
 
     var pdf_layout = row_major(coord[DType.int64]((n_s, n_v)))
-    var pdf_tensor = TileTensor(Span[Float64](pdf_buf), pdf_layout)
+    var pdf_tensor = TileTensor(pdf_buf, pdf_layout)
 
     var dot = List[Float64](length=n_s, fill=0.0)
     var dot_span = Span[mut=True, Float64](dot)
@@ -56,7 +56,7 @@ def _price_at(grid: PDFGrid, payoff: BarrierPayoff) -> List[Float64]:
             payoff_buf_T[k * n_s + i] = vals[k]
 
     var payoff_T_layout = row_major(coord[DType.int64]((n_strikes, n_s)))
-    var payoff_T_tensor = TileTensor(Span[Float64](payoff_buf_T), payoff_T_layout)
+    var payoff_T_tensor = TileTensor(payoff_buf_T, payoff_T_layout)
     var prices = List[Float64](length=n_strikes, fill=0.0)
     var prices_span = Span[mut=True, Float64](prices)
     mat_vec_mul(payoff_T_tensor, Span[Float64](weight), prices_span)
