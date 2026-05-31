@@ -79,3 +79,27 @@ def mat_vec_mul(
             ).reduce_add()
         vectorize[SIMD_W](n, vdot_row)
         y[i] = dot
+
+
+def mat_mul(
+    A: TileTensor[DType.float64, ...],
+    B: TileTensor[DType.float64, ...],
+    mut C: TileTensor[mut=True, DType.float64, ...],
+):
+    var m = Int(A.dim[0]())
+    var n = Int(A.dim[1]())
+    var k = Int(B.dim[1]())
+
+    for i in range(m):
+        var row_a = i * n
+        var row_c = i * k
+        for p in range(n):
+            var a_ip = A.raw_load[width=1](row_a + p)[0]
+            if a_ip == 0.0:
+                continue
+            var base_b = p * k
+            def vaxpy[width: Int](j_off: Int) {mut C, read a_ip, read B, read base_b, read row_c}:
+                var bv = B.raw_load[width=width](base_b + j_off)
+                var cv = C.raw_load[width=width](row_c + j_off)
+                C.raw_store[width=width](row_c + j_off, cv + a_ip * bv)
+            vectorize[SIMD_W](k, vaxpy)

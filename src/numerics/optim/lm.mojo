@@ -1,4 +1,8 @@
 from numerics.utils.linalg import lu_solve
+from numerics.utils import mat_vec_mul, mat_mul
+from layout import TileTensor, coord
+from layout.tile_layout import row_major
+from std.memory import Span
 from std.math import abs
 
 
@@ -51,25 +55,35 @@ struct LevenbergMarquardt:
                         " size"
                     )
 
+            var J_flat = List[Float64](length=m * n, fill=0.0)
+            var JT_flat = List[Float64](length=m * n, fill=0.0)
+            for k in range(m):
+                var jk = J[k].copy()
+                for i in range(n):
+                    var val = jk[i]
+                    J_flat[k * n + i] = val
+                    JT_flat[i * m + k] = val
+
+            var J_t = TileTensor(J_flat, row_major(coord[DType.int64]((m, n))))
+            var JT_t = TileTensor(JT_flat, row_major(coord[DType.int64]((n, m))))
+
+            var JtJ_flat = List[Float64](length=n * n, fill=0.0)
+            var JtJ_t = TileTensor(JtJ_flat, row_major(coord[DType.int64]((n, n))))
+            mat_mul(JT_t, J_t, JtJ_t)
+
             var JtJ: List[List[Float64]] = []
             for i in range(n):
                 var row: List[Float64] = []
                 for j in range(n):
-                    var s = 0.0
-                    for k in range(m):
-                        s += J[k][i] * J[k][j]
-                    row.append(s)
+                    row.append(JtJ_flat[i * n + j])
                 JtJ.append(row^)
 
-            var Jtr: List[Float64] = []
+            var Jtr: List[Float64] = List[Float64](length=n, fill=0.0)
+            var Jtr_span = Span[mut=True, Float64](Jtr)
+            mat_vec_mul(JT_t, Span[Float64](r), Jtr_span)
             var grad_inf = 0.0
             for i in range(n):
-                var s = 0.0
-                for k in range(m):
-                    s += J[k][i] * r[k]
-                Jtr.append(s)
-
-                var abs_s = abs(s)
+                var abs_s = abs(Jtr[i])
                 if abs_s > grad_inf:
                     grad_inf = abs_s
 

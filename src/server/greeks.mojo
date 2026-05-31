@@ -1,6 +1,6 @@
 from server.pricer import Pricer
 from server.option_types import FpeParams
-from server.simd_utils import vec_central_diff, vec_second_diff
+from numerics.utils import vec_central_diff, vec_second_diff
 
 
 struct Greeks(Copyable, Movable):

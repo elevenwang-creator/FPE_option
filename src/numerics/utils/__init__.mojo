@@ -10,3 +10,4 @@ from numerics.utils.helpers import (
     linspace,
     normalize,
 )
+from numerics.utils.simd_utils import vec_scale, vec_central_diff, vec_second_diff, mat_vec_mul, mat_mul

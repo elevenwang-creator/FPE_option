@@ -80,8 +80,7 @@ struct FixedSizeVector(Copyable, Movable, Writable):
     @always_inline
     def copy_from(mut self, src: List[Float64]):
         assert len(src) >= self._len, "Source list too short for copy_from"
-        for i in range(self._len):
-            self._ptr[i] = src[i]
+        memcpy(dest=self._ptr, src=src.unsafe_ptr(), count=self._len)
 
     @always_inline
     def copy_from_fixed(mut self, src: Self):

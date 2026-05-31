@@ -8,7 +8,7 @@ from server.option_types import FpeParams
 from server.payoffs import BarrierPayoff
 from server.pricer import PDFGrid, _price_at
 from server.greeks import Greeks
-from server.simd_utils import vec_scale
+from numerics.utils import vec_scale
 from sparse.csr import CSRMatrix
 from sparse.kron import kron
 from std.math import exp

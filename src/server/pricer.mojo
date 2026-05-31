@@ -7,7 +7,7 @@ from engines.fpe.solver import FPESolver
 from engines.fpe.pdf import pdf_from_cached
 from server.option_types import FpeParams
 from server.payoffs import BarrierPayoff
-from server.simd_utils import vec_scale, mat_vec_mul
+from numerics.utils import vec_scale, mat_vec_mul
 from layout import TileTensor, coord
 from layout.tile_layout import row_major
 

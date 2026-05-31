@@ -1,8 +1,11 @@
-from numerics.utils import zeros_mat
+from numerics.utils import zeros_mat, mat_vec_mul
+from layout import TileTensor, coord
+from layout.tile_layout import row_major
 
 from numerics.nn.stable_linear import StableLinear, make_stable_linear
 from numerics.nn.autograd import Tape
 from std.math import sin
+from std.memory import Span
 
 
 def _make_weights(
@@ -22,20 +25,22 @@ def _linear(
 ) -> List[Float64]:
     """Linear transform: y = W @ x + b."""
     if len(W) == 0:
-        var b_copy = List[Float64]()
-        for i in range(len(b)):
-            b_copy.append(b[i])
-        return b_copy^
+        return b.copy()
     var in_dim = len(W)
     var out_dim = len(b)
+    var n = min(in_dim, len(x))
 
-    var y = List[Float64]()
+    var flat = List[Float64](length=n * out_dim, fill=0.0)
+    for i in range(n):
+        var wi = W[i].copy()
+        for j in range(out_dim):
+            flat[j * n + i] = wi[j]
+    var A = TileTensor(flat, row_major(coord[DType.int64]((out_dim, n))))
+    var y = List[Float64](length=out_dim, fill=0.0)
+    var y_span = Span[mut=True, Float64](y)
+    mat_vec_mul(A, Span[Float64](x), y_span)
     for j in range(out_dim):
-        var sum = 0.0
-        for i in range(in_dim):
-            if i < len(x):
-                sum += W[i][j] * x[i]
-        y.append(sum + b[j])
+        y[j] += b[j]
     return y^
 
 
