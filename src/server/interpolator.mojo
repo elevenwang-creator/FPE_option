@@ -179,9 +179,7 @@ struct Interpolator(Copyable, Movable):
 
         comptime width = simd_width_of[DType.float64]()
         var n = len(s_vals)
-        var result: List[Float64] = []
-        for _ in range(n):
-            result.append(0.0)
+        var result = List[Float64](length=n, fill=0.0)
 
         var i = 0
         while i + width <= n:

@@ -1,4 +1,4 @@
-from numerics.utils import zeros, zeros_mat
+from numerics.utils import zeros_mat
 
 from numerics.nn.stable_linear import StableLinear, make_stable_linear
 from numerics.nn.autograd import Tape
@@ -41,14 +41,15 @@ def _linear(
 
 @always_inline
 def _sin_vec(x: List[Float64]) -> List[Float64]:
-    var out = zeros(len(x))
+    var out = List[Float64](length=len(x), fill=0.0)
     for i in range(len(x)):
         out[i] = sin(x[i])
     return out^
 
 
+@always_inline
 def _add_vec(a: List[Float64], b: List[Float64]) -> List[Float64]:
-    var out = zeros(len(a))
+    var out = List[Float64](length=len(a), fill=0.0)
     for i in range(len(a)):
         out[i] = a[i] + b[i]
     return out^
@@ -76,25 +77,25 @@ struct NaisNet(Copyable, Movable):
 
     def __init__(out self, in_dim: Int = 3, hidden: Int = 12, phi_dim: Int = 2):
         self.layer1 = _make_weights(in_dim, hidden, 0.08)
-        self.layer1_b = zeros(hidden)
+        self.layer1_b = List[Float64](length=hidden, fill=0.0)
 
         self.layer2 = make_stable_linear(hidden, hidden)
         self.layer2_input = _make_weights(in_dim, hidden, 0.04)
-        self.layer2_input_b = zeros(hidden)
+        self.layer2_input_b = List[Float64](length=hidden, fill=0.0)
 
         self.layer3 = make_stable_linear(hidden, hidden)
         self.layer3_input = _make_weights(in_dim, hidden, 0.04)
-        self.layer3_input_b = zeros(hidden)
+        self.layer3_input_b = List[Float64](length=hidden, fill=0.0)
 
         self.layer4 = make_stable_linear(hidden, hidden)
         self.layer4_input = _make_weights(in_dim, hidden, 0.04)
-        self.layer4_input_b = zeros(hidden)
+        self.layer4_input_b = List[Float64](length=hidden, fill=0.0)
 
         self.layer5 = _make_weights(hidden, 1, 0.06)
-        self.layer5_b = zeros(1)
+        self.layer5_b = List[Float64](length=1, fill=0.0)
 
         self.layer6 = _make_weights(hidden, phi_dim, 0.06)
-        self.layer6_b = zeros(phi_dim)
+        self.layer6_b = List[Float64](length=phi_dim, fill=0.0)
 
     def forward(
         self, t: Float64, x: List[Float64]

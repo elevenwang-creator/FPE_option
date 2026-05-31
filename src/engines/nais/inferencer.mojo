@@ -1,4 +1,5 @@
-from numerics.utils import pow_pos, max_f64, abs_f64
+from numerics.utils import pow_pos
+from std.math import max, abs
 
 from engines.nais.nais_net import NaisNet
 from std.math import exp, log, sqrt
@@ -28,7 +29,7 @@ def _bs_call_price(
 ) -> Float64:
     """Black-Scholes call option price."""
     if sigma <= 0.0 or T <= 0.0:
-        return max_f64(S - K, 0.0)
+        return max(S - K, 0.0)
     var d1 = (log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrt(T))
     var d2 = d1 - sigma * sqrt(T)
     return S * _norm_cdf(d1) - K * exp(-r * T) * _norm_cdf(d2)
@@ -54,7 +55,7 @@ def _implied_vol_newton(
     for _ in range(50):
         var bs_price = _bs_call_price(S, K, T, r, sigma)
         var diff = bs_price - price
-        if abs_f64(diff) < 1e-8:
+        if abs(diff) < 1e-8:
             return sigma
         var vega = _bs_vega(S, K, T, r, sigma)
         if vega < 1e-12:

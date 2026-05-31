@@ -125,9 +125,7 @@ struct GenerateKnots(Copyable, Movable):
         var x_len = len(x)
         x = _insertion_sort(x, x_len)
 
-        var y = List[Float64]()
-        for _ in range(x_len):
-            y.append(0.0)
+        var y = List[Float64](length=x_len, fill=0.0)
 
         var y_ptr = y.unsafe_ptr()
         var x_span = Span(x)
@@ -166,10 +164,8 @@ struct GenerateKnots(Copyable, Movable):
         return (n_adj, y^)
 
     def chebyshev_knots(self, n: Int, a: Float64, b: Float64) -> List[Float64]:
-        var out = List[Float64]()
         var total = n + 2
-        for _ in range(total):
-            out.append(0.0)
+        var out = List[Float64](length=total, fill=0.0)
 
         var r_ptr = out.unsafe_ptr()
 
@@ -212,9 +208,7 @@ struct GenerateKnots(Copyable, Movable):
         var r_len = len(right_knots)
         var total = l_len + m_len + r_len
 
-        var merged = List[Float64]()
-        for _ in range(total):
-            merged.append(0.0)
+        var merged = List[Float64](length=total, fill=0.0)
 
         var m_ptr = merged.unsafe_ptr()
         var l_span = Span(left_knots)
@@ -248,9 +242,7 @@ struct GenerateKnots(Copyable, Movable):
                 ri += 1
             di += 1
 
-        var rounded = List[Float64]()
-        for _ in range(total):
-            rounded.append(0.0)
+        var rounded = List[Float64](length=total, fill=0.0)
         var rd_ptr = rounded.unsafe_ptr()
 
         for i in range(total):
@@ -304,9 +296,7 @@ struct GenerateKnots(Copyable, Movable):
 
         var i_len = len(internal_knots)
         var total = 2 * p + i_len
-        var final_knots = List[Float64]()
-        for _ in range(total):
-            final_knots.append(0.0)
+        var final_knots = List[Float64](length=total, fill=0.0)
 
         var fk_ptr = final_knots.unsafe_ptr()
         var ik_span = Span(internal_knots)

@@ -1,5 +1,5 @@
 from numerics.utils.linalg import lu_solve
-from numerics.utils import abs_f64
+from std.math import abs
 
 
 trait ResidualCallable:
@@ -69,7 +69,7 @@ struct LevenbergMarquardt:
                     s += J[k][i] * r[k]
                 Jtr.append(s)
 
-                var abs_s = abs_f64(s)
+                var abs_s = abs(s)
                 if abs_s > grad_inf:
                     grad_inf = abs_s
 

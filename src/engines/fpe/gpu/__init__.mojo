@@ -14,4 +14,4 @@ Kernel implementations live alongside their CPU counterparts as _gpu.mojo files:
 This module only contains the orchestrator (GPUFullChainExecutor).
 """
 
-from engines.fpe.gpu.executor import GPUFullChainExecutor
+

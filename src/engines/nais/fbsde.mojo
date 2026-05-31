@@ -1,4 +1,4 @@
-from numerics.utils import max_f64
+from std.math import max
 
 from engines.nais.nais_net import NaisNet
 from numerics.nn.autograd import Tape
@@ -54,7 +54,7 @@ struct FBSDELoss[B: Int]:
                 var dt = t[n + 1] - t[n]
                 var dW = W[m][n + 1] - W[m][n]
                 var dB = BM[m][n + 1] - BM[m][n]
-                var var0 = max_f64(Var[m][n], 1e-12)
+                var var0 = max(Var[m][n], 1e-12)
 
                 var z = sqrt((1.0 - self.pho * self.pho) * var0) * phi0[0]
                 var z_tilde = self.pho * sqrt(var0) * phi0[0] + phi0[0]
@@ -75,7 +75,7 @@ struct FBSDELoss[B: Int]:
                 y0 = y1
                 phi0 = phi1^
 
-            var terminal = max_f64(W[m][N] - Xi[0], 0.0)
+            var terminal = max(W[m][N] - Xi[0], 0.0)
             var t_diff = y0 - terminal
             loss = loss + 0.02 * t_diff * t_diff
 
@@ -119,7 +119,7 @@ struct FBSDELoss[B: Int]:
                 var dt = t[n + 1] - t[n]
                 var dW = W[m][n + 1] - W[m][n]
                 var dB = BM[m][n + 1] - BM[m][n]
-                var var0 = max_f64(Var[m][n], 1e-12)
+                var var0 = max(Var[m][n], 1e-12)
 
                 var z = sqrt(
                     (1.0 - self.pho * self.pho) * var0
@@ -149,7 +149,7 @@ struct FBSDELoss[B: Int]:
                 y0_idx = y1_idx
                 phi0_idx = phi1_idx.copy()
 
-            var terminal = max_f64(W[m][N] - Xi[0], 0.0)
+            var terminal = max(W[m][N] - Xi[0], 0.0)
             var y0_val = self._get_value(tape, y0_idx)
             var t_diff = y0_val - terminal
             var t_loss = tape.record_value(0.02 * t_diff * t_diff)

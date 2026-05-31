@@ -77,9 +77,7 @@ struct OSQPSolver(Copyable, Movable):
 
         # C2 fix: if factorization failed, return zero vector
         if not factorize_ok:
-            var fallback: List[Float64] = []
-            for _ in range(n):
-                fallback.append(0.0)
+            var fallback = List[Float64](length=n, fill=0.0)
             return fallback^
 
         # Linear term: q = M^T b (positive sign — used as +q in RHS)
@@ -181,106 +179,4 @@ struct OSQPSolver(Copyable, Movable):
         return self.solve_nnls_sparse(M, b)
 
 
-# --- Backward-compatible aliases for existing tests ---
 
-
-struct OSQP(Copyable, Movable):
-    """Legacy alias wrapping OSQPSolver with simplified (max_iter, tol) API."""
-
-    var _solver: OSQPSolver
-
-    def __init__(out self, max_iter: Int = 5000, tol: Float64 = 1e-8):
-        self._solver = OSQPSolver(
-            max_iter=max_iter,
-            eps_abs=tol,
-            eps_rel=tol,
-            rho=0.1,
-            sigma=1e-6,
-            lambda_reg=1e-6,
-        )
-
-    def solve_nnls(
-        self, A: List[List[Float64]], b: List[Float64]
-    ) -> List[Float64]:
-        return self._solver.solve_nnls_dense(A, b)
-
-
-struct ProjectedGradient(Copyable, Movable):
-    """Simple projected gradient descent for NNLS: min ||Ac - b||^2  s.t. c >= 0.
-    """
-
-    var max_iter: Int
-    var tol: Float64
-    var step_size: Float64
-
-    def __init__(
-        out self,
-        max_iter: Int = 1000,
-        tol: Float64 = 1e-8,
-        step_size: Float64 = -1.0,
-    ):
-        self.max_iter = max_iter
-        self.tol = tol
-        self.step_size = step_size
-
-    def solve(self, A: List[List[Float64]], b: List[Float64]) -> List[Float64]:
-        var nrows = len(A)
-        if nrows == 0:
-            return []
-        var ncols = len(A[0])
-        if ncols == 0:
-            return []
-
-        # Compute A^T A and A^T b
-        var AtA: List[List[Float64]] = []
-        var Atb: List[Float64] = []
-        for i in range(ncols):
-            var row: List[Float64] = []
-            for j in range(ncols):
-                var s = 0.0
-                for k in range(nrows):
-                    s += A[k][i] * A[k][j]
-                row.append(s)
-            AtA.append(row^)
-            var sb = 0.0
-            for k in range(nrows):
-                sb += A[k][i] * b[k]
-            Atb.append(sb)
-
-        # Auto step size: 1 / ||A^T A||_F
-        var alpha = self.step_size
-        if alpha <= 0.0:
-            var norm_sq = 0.0
-            for i in range(ncols):
-                for j in range(ncols):
-                    norm_sq += AtA[i][j] * AtA[i][j]
-            if norm_sq > 0.0:
-                alpha = 1.0 / sqrt(norm_sq)
-            else:
-                alpha = 1e-3
-
-        var c: List[Float64] = []
-        for _ in range(ncols):
-            c.append(0.0)
-
-        for _ in range(self.max_iter):
-            # gradient = A^T A c - A^T b
-            var grad: List[Float64] = []
-            var grad_norm = 0.0
-            for i in range(ncols):
-                var g = -Atb[i]
-                for j in range(ncols):
-                    g += AtA[i][j] * c[j]
-                grad.append(g)
-                grad_norm += g * g
-
-            if sqrt(grad_norm) < self.tol:
-                break
-
-            # Projected step: c = max(c - alpha * grad, 0)
-            for i in range(ncols):
-                c[i] = c[i] - alpha * grad[i]
-                if c[i] < 0.0:
-                    c[i] = 0.0
-
-        return c^

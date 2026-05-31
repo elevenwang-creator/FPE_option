@@ -32,7 +32,7 @@ def main():
         n_s=38, n_v=38,
     )
     for i, K in enumerate(strikes):
-        print(f" K={K}: price={result['prices'][i]:.6f} success={result['success'][i]}")
+        print(f" K={K}: price={result.prices[i]:.6f}")
 
     print("\n[2] Up-and-Out Call (barrier=80, option_type='up_and_out_call'):")
     result = fpe_engine.price(
@@ -44,7 +44,7 @@ def main():
         n_s=38, n_v=38,
     )
     for i, K in enumerate(strikes):
-        print(f" K={K}: price={result['prices'][i]:.6f} success={result['success'][i]}")
+        print(f" K={K}: price={result.prices[i]:.6f}")
 
     print("\n[3] Down-and-Out Call (barrier=50, option_type='down_and_out_call'):")
     result = fpe_engine.price(
@@ -56,7 +56,7 @@ def main():
         n_s=38, n_v=38,
     )
     for i, K in enumerate(strikes):
-        print(f" K={K}: price={result['prices'][i]:.6f} success={result['success'][i]}")
+        print(f" K={K}: price={result.prices[i]:.6f}")
 
     print("\n" + "=" * 60)
     print(" Done.")

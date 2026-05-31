@@ -8,9 +8,7 @@ def main() raises:
     var indices: List[Int] = [0, 2, 1, 3, 4]
     var indptr: List[Int] = [0, 2, 3, 3, 4, 5]
     var x: List[Float64] = [1.0, 2.0, 3.0, 4.0, 5.0]
-    var y: List[Float64] = []
-    for _ in range(5):
-        y.append(0.0)
+    var y = List[Float64](length=5, fill=0.0)
     var vals_span = Span(data)
     var cols_span = Span(indices)
     var x_span = Span(x)

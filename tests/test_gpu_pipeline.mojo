@@ -13,7 +13,7 @@ from server.option_types import FpeParams
 from server.pricing_engine import PricingEngine
 from engines.calibrator.calibrator import Calibrator
 
-from gpu_utils.dtype import get_compute_dtype, get_backend_name, is_float32_backend
+from gpu_utils.dtype import GPU_DTYPE
 
 
 def test_gpu_fpe_solver_produces_valid_pricing() raises:
@@ -103,29 +103,14 @@ def test_gpu_calibration_converges() raises:
     assert_true(result.V0 > 0.0)
 
 
-def test_dtype_management_consistency() raises:
-    var dtype = get_compute_dtype()
-    var backend = get_backend_name()
-
-    assert_true(dtype == DType.float32 or dtype == DType.float64)
-
-    var valid_backend = (backend == "metal") or (backend == "cuda") or (backend == "hip") or (backend == "generic") or (backend == "cpu")
-    assert_true(valid_backend)
-
-    if backend == "metal":
-        assert_true(dtype == DType.float32)
-        assert_true(is_float32_backend())
-    else:
-        assert_true(dtype == DType.float64)
-        assert_true(not is_float32_backend())
+def test_gpu_dtype_is_float() raises:
+    assert_true(GPU_DTYPE == DType.float32 or GPU_DTYPE == DType.float64)
 
 
 def main() raises:
     print("=" * 60)
     print("End-to-End GPU Pipeline Test")
-    print("Backend:", get_backend_name())
-    print("Compute dtype:", get_compute_dtype())
-    print("Float32 backend:", is_float32_backend())
+    print("GPU_DTYPE:", GPU_DTYPE)
     print("GPU available:", has_accelerator())
     print("=" * 60)
 

@@ -1,4 +1,4 @@
-from numerics.utils import min_f64, zeros, zeros_mat
+from numerics.utils import zeros_mat
 
 from std.math import sqrt
 
@@ -7,7 +7,7 @@ def _matmul_vec(
     W: List[List[Float64]], x: List[Float64], b: List[Float64]
 ) -> List[Float64]:
     var out_dim = len(b)
-    var y = zeros(out_dim)
+    var y = List[Float64](length=out_dim, fill=0.0)
     for j in range(out_dim):
         y[j] = b[j]
 
@@ -74,13 +74,11 @@ struct StableLinear(Copyable, Movable):
 
         # Estimate spectral norm via power iteration (20 iterations)
         # instead of Frobenius norm which doesn't bound the operator norm
-        var v: List[Float64] = []
-        for i in range(out_features):
-            v.append(1.0)
+        var v = List[Float64](length=out_features, fill=1.0)
 
         var spectral_norm: Float64 = 1.0
         for _ in range(20):
-            var Rv: List[Float64] = zeros(out_features)
+            var Rv: List[Float64] = List[Float64](length=out_features, fill=0.0)
             for i in range(out_features):
                 for j in range(out_features):
                     Rv[i] += RtR[i][j] * v[j]
@@ -118,7 +116,7 @@ def make_stable_linear(
     in_features: Int, out_features: Int, epsilon: Float64 = 0.01
 ) -> StableLinear:
     var W = zeros_mat(in_features, out_features)
-    var b = zeros(out_features)
+    var b = List[Float64](length=out_features, fill=0.0)
     for i in range(in_features):
         for j in range(out_features):
             var seed_i = ((i + 1) * 17 + (j + 1) * 13) % 11

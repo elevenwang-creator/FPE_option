@@ -9,8 +9,7 @@ from numerics.utils.sparse_lu import SparseLU
 from sparse.csr import CSRMatrix
 from sparse.add import add
 from sparse.scale import scale
-from numerics.utils import zeros, abs_f64, max_f64, copy_vec
-from std.math import sqrt, abs, exp
+from std.math import sqrt, abs, exp, max
 
 
 struct SimpleLinearSystem(LinearODESystem):
@@ -39,9 +38,7 @@ def make_diag_csr(n: Int, diag_vals: List[Float64]) -> CSRMatrix:
 
 
 def make_identity_csr(n: Int) -> CSRMatrix:
-    var ones: List[Float64] = []
-    for _ in range(n):
-        ones.append(1.0)
+    var ones = List[Float64](length=n, fill=1.0)
     return make_diag_csr(n, ones)
 
 
@@ -95,11 +92,11 @@ def main() raises:
         print(" FAILED: " + sol1.message)
     else:
         print(" Steps: " + String(len(sol1.t)))
-        var y_final = copy_vec(sol1.y[len(sol1.y) - 1])
+        var y_final = sol1.y[len(sol1.y) - 1].copy()
         var exact: List[Float64] = [exp(-1.0), exp(-2.0), exp(-3.0)]
         var max_err = 0.0
         for i in range(n):
-            var err = abs_f64(y_final[i] - exact[i])
+            var err = abs(y_final[i] - exact[i])
             if err > max_err:
                 max_err = err
             print(
@@ -141,11 +138,11 @@ def main() raises:
         print(" FAILED: " + sol2.message)
     else:
         print(" Steps: " + String(len(sol2.t)))
-        var y_final2 = copy_vec(sol2.y[len(sol2.y) - 1])
+        var y_final2 = sol2.y[len(sol2.y) - 1].copy()
         var exact2: List[Float64] = [exp(-0.5), exp(-2.0 / 3.0), exp(-0.75)]
         var max_err2 = 0.0
         for i in range(n):
-            var err = abs_f64(y_final2[i] - exact2[i])
+            var err = abs(y_final2[i] - exact2[i])
             if err > max_err2:
                 max_err2 = err
             print(
@@ -192,7 +189,7 @@ def main() raises:
         var y0_sum = 0.0
         for i in range(n):
             y0_sum += y0_3[i]
-        var y_final3 = copy_vec(sol3.y[len(sol3.y) - 1])
+        var y_final3 = sol3.y[len(sol3.y) - 1].copy()
         var y_sum = 0.0
         var exact_sum = exp(-1.0) * y0_sum
         for i in range(n):
@@ -202,9 +199,9 @@ def main() raises:
         print(" exact sum = " + String(exact_sum))
         print(
             " relative error = "
-            + String(abs_f64(y_sum - exact_sum) / exact_sum)
+            + String(abs(y_sum - exact_sum) / exact_sum)
         )
-        if abs_f64(y_sum - exact_sum) / exact_sum < 1e-3:
+        if abs(y_sum - exact_sum) / exact_sum < 1e-3:
             print(" PASSED")
         else:
             print(" FAILED")
@@ -238,7 +235,7 @@ def main() raises:
 
     var err_solve = 0.0
     for i in range(n):
-        err_solve = max_f64(err_solve, abs_f64(x_solve[i] - x_true[i]))
+        err_solve = max(err_solve, abs(x_solve[i] - x_true[i]))
     print(" ||E1_h*x - b|| = " + String(err_solve))
     if err_solve < 1e-10:
         print(" SparseLU PASSED")
@@ -268,7 +265,7 @@ def main() raises:
         print(" FAILED: " + sol5.message)
     else:
         print(" Steps: " + String(len(sol5.t)))
-        var y_final5 = copy_vec(sol5.y[len(sol5.y) - 1])
+        var y_final5 = sol5.y[len(sol5.y) - 1].copy()
         var exact5: List[Float64] = [
             exp(-0.1 * 5.0),
             exp(-0.5 * 5.0),
@@ -276,8 +273,8 @@ def main() raises:
         ]
         var max_rel_err5 = 0.0
         for i in range(n):
-            var rel_err = abs_f64(y_final5[i] - exact5[i]) / max_f64(
-                1e-10, abs_f64(exact5[i])
+            var rel_err = abs(y_final5[i] - exact5[i]) / max(
+                1e-10, abs(exact5[i])
             )
             if rel_err > max_rel_err5:
                 max_rel_err5 = rel_err
@@ -318,7 +315,7 @@ def main() raises:
     if not sol6.success:
         print(" FAILED: " + sol6.message)
     else:
-        var y_final6 = copy_vec(sol6.y[len(sol6.y) - 1])
+        var y_final6 = sol6.y[len(sol6.y) - 1].copy()
         var sum_y = 0.0
         var all_positive = True
         for i in range(n6):
@@ -362,7 +359,7 @@ def main() raises:
             var tj = sol7.t[j]
             var exact_j: List[Float64] = [exp(-1.0 * tj), exp(-2.0 * tj), exp(-3.0 * tj)]
             for i in range(n):
-                var err = abs_f64(sol7.y[j][i] - exact_j[i])
+                var err = abs(sol7.y[j][i] - exact_j[i])
                 if err > max_interp_err:
                     max_interp_err = err
         print(" Max interpolation error: " + String(max_interp_err))
@@ -379,9 +376,7 @@ def main() raises:
     var n8 = 10
     var M8 = make_identity_csr(n8)
     var K8 = make_tridiag_csr(n8, -5.0, 10.0, -5.0)
-    var y0_8: List[Float64] = []
-    for _ in range(n8):
-        y0_8.append(1.0)
+    var y0_8 = List[Float64](length=n8, fill=1.0)
 
     var sys8 = SimpleLinearSystem(M8^, K8^)
     var solver8 = RadauSparseLinearSolver[SimpleLinearSystem](

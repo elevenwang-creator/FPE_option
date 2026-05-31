@@ -1,4 +1,5 @@
-from numerics.utils import linspace, abs_f64
+from numerics.utils import linspace
+from std.math import abs
 
 from engines.nais.fbsde import FBSDEParams, FBSDELoss
 from engines.nais.nais_net import NaisNet
@@ -220,7 +221,7 @@ struct Trainer[B: Int]:
             var net_params = _flatten_net_params(net)
             var grads: List[Float64] = []
             for i in range(len(net_params)):
-                var eps = epsilon * (1.0 + abs_f64(net_params[i]))
+                var eps = epsilon * (1.0 + abs(net_params[i]))
                 var plus = net_params.copy()
                 var minus = net_params.copy()
                 plus[i] = plus[i] + eps

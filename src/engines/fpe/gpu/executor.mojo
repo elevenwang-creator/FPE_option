@@ -16,10 +16,6 @@ from gpu_utils.dtype import (
     GPU_DTYPE,
     GPU_VEC_LAYOUT,
     GPU_MAX_N,
-    METAL_DTYPE,
-    METAL_VEC_LAYOUT,
-    CUDA_DTYPE,
-    CUDA_VEC_LAYOUT,
 )
 
 from numerics.bspline.knots_gpu import generate_knots_gpu_kernel
@@ -353,23 +349,19 @@ struct GPUFullChainExecutor[B: Int]:
         var bs = 256
         var grid_dim = n_options
 
-        comptime if has_apple_gpu_accelerator():
-            var pdf_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](
-                GPU_MAX_N * GPU_MAX_N
-            )
-            var s_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
-            var v_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
-            var ds_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
-            var dv_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
-            var k_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](GPU_MAX_N)
-            var bar_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](
-                GPU_MAX_N
-            )
-            var price_host = ctx.enqueue_create_host_buffer[METAL_DTYPE](
-                GPU_MAX_N
-            )
-            ctx.synchronize()
+        var pdf_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](
+            GPU_MAX_N * GPU_MAX_N
+        )
+        var s_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        var v_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        var ds_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        var dv_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        var k_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        var bar_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        var price_host = ctx.enqueue_create_host_buffer[GPU_DTYPE](GPU_MAX_N)
+        ctx.synchronize()
 
+        comptime if GPU_DTYPE == DType.float32:
             for i in range(n_s):
                 for j in range(n_v):
                     if i * n_v + j < GPU_MAX_N * GPU_MAX_N:
@@ -386,82 +378,7 @@ struct GPUFullChainExecutor[B: Int]:
                 k_host[i] = Float32(strikes_data[i])
             for i in range(n_options):
                 bar_host[i] = Float32(barriers_data[i])
-
-            var pdf_dev = ctx.enqueue_create_buffer[METAL_DTYPE](
-                GPU_MAX_N * GPU_MAX_N
-            )
-            var s_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-            var v_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-            var ds_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-            var dv_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-            var k_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-            var bar_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-            var price_dev = ctx.enqueue_create_buffer[METAL_DTYPE](GPU_MAX_N)
-
-            ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
-            ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
-            ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
-            ctx.enqueue_copy(dst_buf=ds_dev, src_buf=ds_host)
-            ctx.enqueue_copy(dst_buf=dv_dev, src_buf=dv_host)
-            ctx.enqueue_copy(dst_buf=k_dev, src_buf=k_host)
-            ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
-            ctx.synchronize()
-
-            var pdf_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](
-                pdf_dev
-            )
-            var s_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](s_dev)
-            var v_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](v_dev)
-            var ds_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](ds_dev)
-            var dv_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](dv_dev)
-            var k_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](k_dev)
-            var bar_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](
-                bar_dev
-            )
-            var price_tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](
-                price_dev
-            )
-
-            ctx.enqueue_function[
-                price_integration_kernel, price_integration_kernel
-            ](
-                pdf_tensor,
-                s_tensor,
-                v_tensor,
-                ds_tensor,
-                dv_tensor,
-                k_tensor,
-                bar_tensor,
-                price_tensor,
-                n_s,
-                n_v,
-                n_options,
-                grid_dim=grid_dim,
-                block_dim=bs,
-            )
-            ctx.synchronize()
-            ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
-            ctx.synchronize()
-
-            var results: List[Float64] = []
-            for i in range(n_options):
-                results.append(Float64(price_host[i]))
-            return results^
         else:
-            var pdf_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](
-                GPU_MAX_N * GPU_MAX_N
-            )
-            var s_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var v_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var ds_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var dv_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var k_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var bar_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var price_host = ctx.enqueue_create_host_buffer[CUDA_DTYPE](
-                GPU_MAX_N
-            )
-            ctx.synchronize()
-
             for i in range(n_s):
                 for j in range(n_v):
                     if i * n_v + j < GPU_MAX_N * GPU_MAX_N:
@@ -479,59 +396,57 @@ struct GPUFullChainExecutor[B: Int]:
             for i in range(n_options):
                 bar_host[i] = barriers_data[i]
 
-            var pdf_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](
-                GPU_MAX_N * GPU_MAX_N
-            )
-            var s_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var v_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var ds_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var dv_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var k_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var bar_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
-            var price_dev = ctx.enqueue_create_buffer[CUDA_DTYPE](GPU_MAX_N)
+        var pdf_dev = ctx.enqueue_create_buffer[GPU_DTYPE](
+            GPU_MAX_N * GPU_MAX_N
+        )
+        var s_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
+        var v_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
+        var ds_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
+        var dv_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
+        var k_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
+        var bar_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
+        var price_dev = ctx.enqueue_create_buffer[GPU_DTYPE](GPU_MAX_N)
 
-            ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
-            ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
-            ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
-            ctx.enqueue_copy(dst_buf=ds_dev, src_buf=ds_host)
-            ctx.enqueue_copy(dst_buf=dv_dev, src_buf=dv_host)
-            ctx.enqueue_copy(dst_buf=k_dev, src_buf=k_host)
-            ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
-            ctx.synchronize()
+        ctx.enqueue_copy(dst_buf=pdf_dev, src_buf=pdf_host)
+        ctx.enqueue_copy(dst_buf=s_dev, src_buf=s_host)
+        ctx.enqueue_copy(dst_buf=v_dev, src_buf=v_host)
+        ctx.enqueue_copy(dst_buf=ds_dev, src_buf=ds_host)
+        ctx.enqueue_copy(dst_buf=dv_dev, src_buf=dv_host)
+        ctx.enqueue_copy(dst_buf=k_dev, src_buf=k_host)
+        ctx.enqueue_copy(dst_buf=bar_dev, src_buf=bar_host)
+        ctx.synchronize()
 
-            var pdf_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](pdf_dev)
-            var s_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](s_dev)
-            var v_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](v_dev)
-            var ds_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](ds_dev)
-            var dv_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](dv_dev)
-            var k_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](k_dev)
-            var bar_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](bar_dev)
-            var price_tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](
-                price_dev
-            )
+        var pdf_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](pdf_dev)
+        var s_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](s_dev)
+        var v_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](v_dev)
+        var ds_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](ds_dev)
+        var dv_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](dv_dev)
+        var k_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](k_dev)
+        var bar_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](bar_dev)
+        var price_tensor = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](price_dev)
 
-            ctx.enqueue_function[
-                price_integration_kernel, price_integration_kernel
-            ](
-                pdf_tensor,
-                s_tensor,
-                v_tensor,
-                ds_tensor,
-                dv_tensor,
-                k_tensor,
-                bar_tensor,
-                price_tensor,
-                n_s,
-                n_v,
-                n_options,
-                grid_dim=grid_dim,
-                block_dim=bs,
-            )
-            ctx.synchronize()
-            ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
-            ctx.synchronize()
+        ctx.enqueue_function[
+            price_integration_kernel, price_integration_kernel
+        ](
+            pdf_tensor,
+            s_tensor,
+            v_tensor,
+            ds_tensor,
+            dv_tensor,
+            k_tensor,
+            bar_tensor,
+            price_tensor,
+            n_s,
+            n_v,
+            n_options,
+            grid_dim=grid_dim,
+            block_dim=bs,
+        )
+        ctx.synchronize()
+        ctx.enqueue_copy(dst_buf=price_host, src_buf=price_dev)
+        ctx.synchronize()
 
-            var results: List[Float64] = []
-            for i in range(n_options):
-                results.append(Float64(price_host[i]))
-            return results^
+        var results: List[Float64] = []
+        for i in range(n_options):
+            results.append(Float64(price_host[i]))
+        return results^

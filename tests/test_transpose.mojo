@@ -28,14 +28,10 @@ def main() raises:
         print("PASS: 3x3 transpose correct")
 
     var x: List[Float64] = [1.0, 2.0, 3.0]
-    var y: List[Float64] = []
-    for _ in range(3):
-        y.append(0.0)
+    var y = List[Float64](length=3, fill=0.0)
     A.spmv(x, y)
 
-    var yt: List[Float64] = []
-    for _ in range(3):
-        yt.append(0.0)
+    var yt = List[Float64](length=3, fill=0.0)
     AT.spmv(x, yt)
 
     print("A*x  =", y)

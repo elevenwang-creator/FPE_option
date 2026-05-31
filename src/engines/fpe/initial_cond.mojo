@@ -100,9 +100,7 @@ def initial_condition_from_cached[ds: Int, dv: Int](
     var galerkin_proj_scaled = Dinv.spmv_new(galerkin_projection)
 
     var n_quad = cached.n_s * cached.n_v
-    var ones: List[Float64] = []
-    for _ in range(n_quad):
-        ones.append(1.0)
+    var ones = List[Float64](length=n_quad, fill=1.0)
     var w_ones = weights_spmv(cached.s_weights, cached.v_weights, ones)
     var m = kron_T_spmv(cached.Bs_T, cached.Bv_T, w_ones)
 

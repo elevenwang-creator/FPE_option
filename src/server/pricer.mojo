@@ -81,9 +81,7 @@ struct Pricer(Copyable, Movable):
 
     def price(self, fpe_params: FpeParams) raises -> List[Float64]:
         if not fpe_params.is_valid():
-            var err: List[Float64] = []
-            for _ in range(len(fpe_params.strikes)):
-                err.append(0.0)
+            var err = List[Float64](length=len(fpe_params.strikes), fill=0.0)
             return err^
 
         var revised = fpe_params.revised_heston()

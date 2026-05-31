@@ -1,23 +1,25 @@
 """Dense linear algebra operations for FPE systems."""
 
-from numerics.utils.helpers import abs_f64, zeros, copy_mat, copy_vec
+from numerics.utils.helpers import copy_mat
 
+
+from std.math import abs
 
 def lu_solve(A: List[List[Float64]], b: List[Float64]) -> List[Float64]:
     """Dense LU with partial pivoting."""
     var n = len(b)
     var LU = copy_mat(A)
-    var x = copy_vec(b)
+    var x = b.copy()
     var perm = List[Int]()
     for i in range(n):
         perm.append(i)
 
     for k in range(n):
         var pivot = k
-        var max_val = abs_f64(LU[k][k])
+        var max_val = abs(LU[k][k])
         for i in range(k + 1, n):
-            if abs_f64(LU[i][k]) > max_val:
-                max_val = abs_f64(LU[i][k])
+            if abs(LU[i][k]) > max_val:
+                max_val = abs(LU[i][k])
                 pivot = i
 
         if max_val < 1e-14:
@@ -53,13 +55,4 @@ def lu_solve(A: List[List[Float64]], b: List[Float64]) -> List[Float64]:
     return x^
 
 
-def dense_matvec(A: List[List[Float64]], x: List[Float64]) -> List[Float64]:
-    """Dense matrix-vector multiply."""
-    var n = len(A)
-    var y = zeros(n)
-    for i in range(n):
-        var acc: Float64 = 0.0
-        for j in range(n):
-            acc += A[i][j] * x[j]
-        y[i] = acc
-    return y^
+

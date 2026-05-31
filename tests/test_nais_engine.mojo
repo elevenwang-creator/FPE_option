@@ -7,9 +7,7 @@ from std.testing import assert_true, TestSuite
 
 
 def _zeros(n: Int) -> List[Float64]:
-    var out: List[Float64] = []
-    for _ in range(n):
-        out.append(0.0)
+    var out = List[Float64](length=n, fill=0.0)
     return out^
 
 

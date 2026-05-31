@@ -45,9 +45,7 @@ def main() raises:
     print()
 
     var residual3 = 0.0
-    var Ax3: List[Float64] = []
-    for _ in range(3):
-        Ax3.append(0.0)
+    var Ax3 = List[Float64](length=3, fill=0.0)
     for col in range(3):
         for p in range(A3.colptr[col], A3.colptr[col + 1]):
             var row = A3.indices[p]
@@ -96,9 +94,7 @@ def main() raises:
         print(String(x5[i]), end=" ")
     print()
 
-    var Ax5: List[Float64] = []
-    for _ in range(n5):
-        Ax5.append(0.0)
+    var Ax5 = List[Float64](length=n5, fill=0.0)
     for col in range(n5):
         for p in range(A5.colptr[col], A5.colptr[col + 1]):
             var row = A5.indices[p]
@@ -128,9 +124,7 @@ def main() raises:
         print(String(x4[i]), end=" ")
     print()
 
-    var Ax4: List[Float64] = []
-    for _ in range(4):
-        Ax4.append(0.0)
+    var Ax4 = List[Float64](length=4, fill=0.0)
     for col in range(4):
         for p in range(A4.colptr[col], A4.colptr[col + 1]):
             var row = A4.indices[p]
@@ -183,9 +177,7 @@ def main() raises:
     b32.append(4.0)
     var x32 = lu32.solve(b32)
 
-    var Ax32: List[Float64] = []
-    for _ in range(n32):
-        Ax32.append(0.0)
+    var Ax32 = List[Float64](length=n32, fill=0.0)
     for col in range(n32):
         for p in range(A32.colptr[col], A32.colptr[col + 1]):
             var row = A32.indices[p]

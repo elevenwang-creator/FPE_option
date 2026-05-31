@@ -87,9 +87,7 @@ struct CSRMatrix(Movable, Writable):
         return 0
 
     def spmv_new(self, x: List[Float64]) -> List[Float64]:
-        var y: List[Float64] = []
-        for _ in range(self.nrows):
-            y.append(0)
+        var y = List[Float64](length=self.nrows, fill=0.0)
         self.spmv(x, y)
         return y^
 

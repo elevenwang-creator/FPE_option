@@ -72,9 +72,7 @@ struct BSplineBasis[degree: Int](Copyable, Movable):
         var n_pts = len(points)
         var n_basis = self.num_basis
 
-        var row_counts = List[Int]()
-        for _ in range(n_pts):
-            row_counts.append(0)
+        var row_counts = List[Int](length=n_pts, fill=0)
         var rc_ptr = row_counts.unsafe_ptr()
 
         var pts_span = Span(points)
@@ -102,9 +100,7 @@ struct BSplineBasis[degree: Int](Copyable, Movable):
         for i in range(n_pts):
             ip_ptr[i + 1] = ip_ptr[i] + rc_ptr[i]
 
-        var pos = List[Int]()
-        for _ in range(n_pts):
-            pos.append(0)
+        var pos = List[Int](length=n_pts, fill=0)
         var pos_ptr = pos.unsafe_ptr()
 
         for i in range(n_pts):
@@ -132,9 +128,7 @@ struct BSplineBasis[degree: Int](Copyable, Movable):
 
         var lower = BSplineBasis[Self.degree - 1](self.knots.copy())
 
-        var row_counts = List[Int]()
-        for _ in range(n_pts):
-            row_counts.append(0)
+        var row_counts = List[Int](length=n_pts, fill=0)
         var rc_ptr = row_counts.unsafe_ptr()
 
         var pts_span = Span(points)
@@ -181,9 +175,7 @@ struct BSplineBasis[degree: Int](Copyable, Movable):
         for i in range(n_pts):
             ip_ptr[i + 1] = ip_ptr[i] + rc_ptr[i]
 
-        var pos = List[Int]()
-        for _ in range(n_pts):
-            pos.append(0)
+        var pos = List[Int](length=n_pts, fill=0)
         var pos_ptr = pos.unsafe_ptr()
 
         for i in range(n_pts):

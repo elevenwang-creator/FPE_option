@@ -21,7 +21,7 @@ from engines.nais.nais_net import NaisNet
 from engines.nais.trainer import Trainer
 from engines.nais.fbsde import FBSDEParams
 
-from gpu_utils.dtype import get_compute_dtype, get_backend_name, is_float32_backend
+from gpu_utils.dtype import GPU_DTYPE
 
 
 def test_pipeline1_single_pricing_cpu() raises:
@@ -87,24 +87,14 @@ def test_pipeline4_nais_training_gpu() raises:
     assert_true(len(losses) == 3)
 
 
-def test_dtype_management_across_pipelines() raises:
-    """Verify dtype management module provides consistent types."""
-    var dtype = get_compute_dtype()
-    var backend = get_backend_name()
-    
-    assert_true(dtype == DType.float32 or dtype == DType.float64)
-    
-    if backend == "metal":
-        assert_true(dtype == DType.float32)
-    else:
-        assert_true(dtype == DType.float64)
+def test_gpu_dtype_is_float() raises:
+    assert_true(GPU_DTYPE == DType.float32 or GPU_DTYPE == DType.float64)
 
 
 def main() raises:
     print("=" * 60)
     print("Four-Pipeline Architecture Verification")
-    print("Backend:", get_backend_name())
-    print("Compute dtype:", get_compute_dtype())
+    print("GPU_DTYPE:", GPU_DTYPE)
     print("GPU available:", has_accelerator())
     print("=" * 60)
     print()
@@ -113,5 +103,5 @@ def main() raises:
     print("Pipeline 3: Heston Calibration (GPU, B>1)")
     print("Pipeline 4: NAIS Portfolio Pricing (GPU, B>1)")
     print("=" * 60)
-    
+
     TestSuite.discover_tests[__functions_in_module()]().run()

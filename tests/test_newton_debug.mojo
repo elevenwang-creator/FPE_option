@@ -6,8 +6,8 @@ from numerics.utils.sparse_lu import SparseLU
 from sparse.csr import CSRMatrix
 from sparse.csc import CSCMatrix, csr_to_csc
 from sparse.ops import add, scale
-from numerics.utils import zeros, abs_f64, max_f64, min_f64, copy_vec, pow_pos
-from std.math import sqrt, abs
+from numerics.utils import pow_pos
+from std.math import sqrt, abs, max, min
 
 
 struct SimpleSystem(LinearODESystem):
@@ -76,7 +76,7 @@ var TI33: Float64 = 5.9603920482822492222e-01
     var atol: Float64 = 1e-10
     var uround: Float64 = 1e-16
     var nit: Int = 7
-    var fnewt = max_f64(10.0 * uround / rtol, min_f64(0.03, rtol ** 0.5))
+    var fnewt = max(10.0 * uround / rtol, min(0.03, rtol ** 0.5))
 
     print("fnewt = " + String(fnewt))
 
@@ -117,12 +117,12 @@ var TI33: Float64 = 5.9603920482822492222e-01
 
         var w = K.spmv(y)
 
-        var Z1 = zeros(n)
-        var Z2 = zeros(n)
-        var Z3 = zeros(n)
-        var F1 = zeros(n)
-        var F2 = zeros(n)
-        var F3 = zeros(n)
+        var Z1 = List[Float64](length=n, fill=0.0)
+        var Z2 = List[Float64](length=n, fill=0.0)
+        var Z3 = List[Float64](length=n, fill=0.0)
+        var F1 = List[Float64](length=n, fill=0.0)
+        var F2 = List[Float64](length=n, fill=0.0)
+        var F3 = List[Float64](length=n, fill=0.0)
 
         var faccon: Float64 = 1.0
         var dynold: Float64 = 0.0
@@ -140,8 +140,8 @@ var TI33: Float64 = 5.9603920482822492222e-01
             var MF2 = M.spmv(F2)
             var MF3 = M.spmv(F3)
 
-            var rhs_real = zeros(n)
-            var rhs_complex = zeros(n2)
+            var rhs_real = List[Float64](length=n, fill=0.0)
+            var rhs_complex = List[Float64](length=n2, fill=0.0)
 
             for k in range(n):
                 var f1_k = -w[k] - KZ1[k]
@@ -161,7 +161,7 @@ var TI33: Float64 = 5.9603920482822492222e-01
 
             var dyno_sq = 0.0
             for k in range(n):
-                var s = atol + rtol * abs_f64(y[k])
+                var s = atol + rtol * abs(y[k])
                 dyno_sq += (dF1[k] / s) ** 2 + (dF2_dF3[k] / s) ** 2 + (
                     dF2_dF3[n + k] / s
                 ) ** 2
@@ -178,7 +178,7 @@ var TI33: Float64 = 5.9603920482822492222e-01
             )
 
             if newt >= 1:
-                var thq = dyno / max_f64(dynold, uround)
+                var thq = dyno / max(dynold, uround)
                 if newt == 1:
                     theta_loc = thq
                 else:
@@ -190,7 +190,7 @@ var TI33: Float64 = 5.9603920482822492222e-01
                     print("  DIVERGING theta=" + String(theta_loc))
                     break
 
-            dynold = max_f64(dyno, uround)
+            dynold = max(dyno, uround)
 
             for k in range(n):
                 F1[k] = F1[k] + dF1[k]
@@ -204,12 +204,12 @@ var TI33: Float64 = 5.9603920482822492222e-01
                 print("  CONVERGED at newt=" + String(newt + 1))
                 break
 
-        var CONT = zeros(n)
+        var CONT = List[Float64](length=n, fill=0.0)
         for k in range(n):
             CONT[k] = DD1 * Z1[k] + DD2 * Z2[k] + DD3 * Z3[k]
 
         var M_CONT = M.spmv(CONT)
-        var rhs_err = zeros(n)
+        var rhs_err = List[Float64](length=n, fill=0.0)
         for k in range(n):
             rhs_err[k] = M_CONT[k] - h * w[k]
 
@@ -217,7 +217,7 @@ var TI33: Float64 = 5.9603920482822492222e-01
 
         var err_norm_sq = 0.0
         for k in range(n):
-            var sc = atol + rtol * abs_f64(y[k])
+            var sc = atol + rtol * abs(y[k])
             var ratio = error[k] / sc
             err_norm_sq += ratio * ratio
         var err_norm = sqrt(err_norm_sq / Float64(n))

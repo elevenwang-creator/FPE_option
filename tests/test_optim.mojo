@@ -1,4 +1,4 @@
-from numerics.optim.osqp import OSQP, ProjectedGradient
+from numerics.optim.osqp import OSQPSolver
 from numerics.optim.lm import LevenbergMarquardt, ResidualCallable, JacobianCallable
 from std.testing import assert_true, TestSuite
 
@@ -47,16 +47,11 @@ def test_nnls_identity_with_sum_row() raises:
     A.append([1.0, 1.0])
     var b: List[Float64] = [1.0, 1.0, 2.0]
 
-    var solver = ProjectedGradient(max_iter=2000, tol=1e-10, step_size=-1.0)
-    var c = solver.solve(A, b)
+    var solver = OSQPSolver(max_iter=2000, eps_abs=1e-10, eps_rel=1e-10, rho=0.1, sigma=1e-6, lambda_reg=1e-6)
+    var c = solver.solve_nnls_dense(A, b)
 
     assert_float_close(c[0], 1.0, 1e-6)
     assert_float_close(c[1], 1.0, 1e-6)
-
-    var osqp = OSQP(max_iter=2000, tol=1e-10)
-    var c2 = osqp.solve_nnls(A, b)
-    assert_float_close(c2[0], 1.0, 1e-6)
-    assert_float_close(c2[1], 1.0, 1e-6)
 
 
 def test_nnls_projects_negative_target_to_zero() raises:
@@ -65,8 +60,8 @@ def test_nnls_projects_negative_target_to_zero() raises:
     A.append([0.0, 1.0])
     var b: List[Float64] = [-1.0, -1.0]
 
-    var solver = ProjectedGradient(max_iter=2000, tol=1e-10, step_size=-1.0)
-    var c = solver.solve(A, b)
+    var solver = OSQPSolver(max_iter=2000, eps_abs=1e-10, eps_rel=1e-10, rho=0.1, sigma=1e-6, lambda_reg=1e-6)
+    var c = solver.solve_nnls_dense(A, b)
 
     assert_float_close(c[0], 0.0, 1e-8)
     assert_float_close(c[1], 0.0, 1e-8)

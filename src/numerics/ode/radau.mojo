@@ -33,11 +33,6 @@ Fortran source: RADAU5 / RADCOR / dc_lapack by E. Hairer, G. Wanner
 from numerics.ode.types import ODESolution
 from numerics.utils import (
     FixedSizeVector,
-    abs_f64,
-    max_f64,
-    min_f64,
-    zeros,
-    copy_vec,
     pow_pos,
 )
 from numerics.utils.sparse_lu import SparseLU
@@ -140,7 +135,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
         var t_values: List[Float64] = [t0]
         var y_values: List[List[Float64]] = []
-        y_values.append(copy_vec(y0))
+        y_values.append(y0.copy())
 
         var y = FixedSizeVector(n)
         y.copy_from(y0)
@@ -149,7 +144,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
         if t_eval is not None:
             if t_eval_idx < len(t_eval.value()):
-                if abs_f64(t_eval.value()[t_eval_idx] - t0) <= 1e-15:
+                if abs(t_eval.value()[t_eval_idx] - t0) <= 1e-15:
                     t_eval_idx += 1
 
         var uround: Float64 = 1e-16
@@ -163,8 +158,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var rtol_work = 0.1 * self.rtol ** (2.0 / 3.0)
         var atol_work = rtol_work * (self.atol / self.rtol)
 
-        var fnewt = max_f64(
-            10.0 * uround / rtol_work, min_f64(0.03, rtol_work**0.5)
+        var fnewt = max(
+            10.0 * uround / rtol_work, min(0.03, rtol_work**0.5)
         )
 
         var scal = FixedSizeVector(n)
@@ -180,12 +175,12 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 dnf += (k0_list[k] / scal[k]) ** 2
             dnf = sqrt(dnf / Float64(n))
             if dnf <= 1e-10:
-                h = max_f64(1e-6, abs_f64(t1 - t0) * 1e-3)
+                h = max(1e-6, abs(t1 - t0) * 1e-3)
             else:
                 h = 0.01 / dnf
             if self.max_step > 0.0:
-                h = min_f64(h, self.max_step)
-        h = min_f64(h, abs_f64(t1 - t0))
+                h = min(h, self.max_step)
+        h = min(h, abs(t1 - t0))
         h = posneg * h
 
         var n_steps: Int = 0
@@ -239,18 +234,12 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
         var gmres_H = List[List[Float64]]()
         for _ in range(GMRES_MAX_KRYLOV + 1):
-            var row = List[Float64]()
-            for _ in range(GMRES_MAX_KRYLOV):
-                row.append(0.0)
+            var row = List[Float64](length=GMRES_MAX_KRYLOV, fill=0.0)
             gmres_H.append(row^)
 
-        var gmres_cs = List[Float64]()
-        var gmres_sn = List[Float64]()
-        var gmres_s = List[Float64]()
-        for _ in range(GMRES_MAX_KRYLOV + 1):
-            gmres_cs.append(0.0)
-            gmres_sn.append(0.0)
-            gmres_s.append(0.0)
+        var gmres_cs = List[Float64](length=GMRES_MAX_KRYLOV + 1, fill=0.0)
+        var gmres_sn = List[Float64](length=GMRES_MAX_KRYLOV + 1, fill=0.0)
+        var gmres_s = List[Float64](length=GMRES_MAX_KRYLOV + 1, fill=0.0)
 
         var gmres_w_re = FixedSizeVector(n)
         var gmres_w_im = FixedSizeVector(n)
@@ -264,7 +253,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var E_diag_cached = self._build_diag_system(M, K, 1.0, n)
         var E_diag_csc_cached = E_diag_cached.to_csc()
 
-        while posneg * (t1 - t) > uround * max_f64(abs_f64(t), abs_f64(t1)):
+        while posneg * (t1 - t) > uround * max(abs(t), abs(t1)):
             if n_steps > 100000:
                 return ODESolution(
                     t_values^,
@@ -282,7 +271,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     if posneg * (t + 1.01 * h - te) > 0.0 and posneg * (te - t) > 0.0:
                         h = te - t
 
-            var h_abs = abs_f64(h)
+            var h_abs = abs(h)
             if h_abs < 1e-14:
                 return ODESolution(
                     t_values^,
@@ -295,7 +284,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
             if h_lu == 0.0:
                 need_lu = True
             else:
-                var h_ratio = abs_f64(h / h_lu)
+                var h_ratio = abs(h / h_lu)
                 need_lu = h_ratio < quot1 or h_ratio > quot2
             if need_lu:
                 self._update_real_data(M, K, h, n, E1_cached, E1_csc_cached)
@@ -341,8 +330,8 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 F3.lin_comb_3(TI31, Z1, TI32, Z2, TI33, Z3)
 
             var newt: Int = 0
-            faccon = max_f64(faccon, uround) ** 0.8
-            var theta_loc = abs_f64(theta)
+            faccon = max(faccon, uround) ** 0.8
+            var theta_loc = abs(theta)
             var dynold: Float64 = 0.0
             var thqold: Float64 = 0.0
             var converged = False
@@ -420,7 +409,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 var dyno = sqrt(dyno_sq / Float64(3 * n))
 
                 if newt > 1 and newt < nit:
-                    var thq = dyno / max_f64(dynold, uround)
+                    var thq = dyno / max(dynold, uround)
                     if newt == 2:
                         theta_loc = thq
                     else:
@@ -435,7 +424,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                             / fnewt
                         )
                         if dyth >= 1.0:
-                            var qnewt = max_f64(1e-4, min_f64(20.0, dyth))
+                            var qnewt = max(1e-4, min(20.0, dyth))
                             var hhfac = 0.8 * qnewt ** (
                                 -1.0 / Float64(4 + nit - 1 - newt)
                             )
@@ -446,7 +435,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                         newt_fail = True
                         break
 
-                dynold = max_f64(dyno, uround)
+                dynold = max(dyno, uround)
 
                 F1.addassign(dF1)
                 F2.addassign(dF2)
@@ -466,7 +455,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     h = h * 0.1
                 else:
                     h = h * 0.5
-                if abs_f64(h) < 1e-14:
+                if abs(h) < 1e-14:
                     return ODESolution(
                         t_values^,
                         y_values^,
@@ -514,9 +503,9 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 if err_norm < 1e-10:
                     err_norm = 1e-10
 
-            var fac = min_f64(safety, cfac / Float64(newt + 2 * nit))
-            var quot = max_f64(
-                1.0 / fac2, min_f64(1.0 / fac1, err_norm**0.25 / fac)
+            var fac = min(safety, cfac / Float64(newt + 2 * nit))
+            var quot = max(
+                1.0 / fac2, min(1.0 / fac1, err_norm**0.25 / fac)
             )
             var h_new = h / quot
 
@@ -535,9 +524,9 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                 else:
                     while t_eval_idx < len(t_eval.value()):
                         var te = t_eval.value()[t_eval_idx]
-                        if posneg * (te - t) > uround * max_f64(abs_f64(t), abs_f64(te)):
+                        if posneg * (te - t) > uround * max(abs(t), abs(te)):
                             break
-                        if abs_f64(te - t) <= uround * max_f64(abs_f64(t), abs_f64(te)):
+                        if abs(te - t) <= uround * max(abs(t), abs(te)):
                             t_values.append(te)
                             y_values.append(y.to_list())
                         else:
@@ -553,18 +542,18 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
                     var facgus = (
                         (hacc / h) * (err_norm**2 / erracc) ** 0.25 / safety
                     )
-                    facgus = max_f64(1.0 / fac2, min_f64(1.0 / fac1, facgus))
-                    quot = max_f64(quot, facgus)
+                    facgus = max(1.0 / fac2, min(1.0 / fac1, facgus))
+                    quot = max(quot, facgus)
                     h_new = h / quot
                 hacc = h
-                erracc = max_f64(1e-2, err_norm)
+                erracc = max(1e-2, err_norm)
                 h_old = h
 
-                h_new = posneg * min_f64(abs_f64(h_new), abs_f64(t1 - t))
+                h_new = posneg * min(abs(h_new), abs(t1 - t))
                 if self.max_step > 0.0:
-                    h_new = posneg * min_f64(abs_f64(h_new), self.max_step)
+                    h_new = posneg * min(abs(h_new), self.max_step)
                 if reject:
-                    h_new = posneg * min_f64(abs_f64(h_new), abs_f64(h))
+                    h_new = posneg * min(abs(h_new), abs(h))
                 reject = False
                 h = h_new
             else:
@@ -1121,7 +1110,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
             gmres_s[j + 1] = gmres_sn[j] * s_old + gmres_cs[j] * gmres_s[j + 1]
 
             # Check convergence
-            var residual = abs_f64(gmres_s[j + 1])
+            var residual = abs(gmres_s[j + 1])
             if residual < GMRES_TOL * beta:
                 j += 1
                 break
@@ -1129,14 +1118,12 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
             j += 1
 
         # Solve upper triangular system H*y = s (j x j)
-        var y_sol = List[Float64]()
-        for _ in range(j):
-            y_sol.append(0.0)
+        var y_sol = List[Float64](length=j, fill=0.0)
         for k_idx in range(j - 1, -1, -1):
             var sum_val = gmres_s[k_idx]
             for m in range(k_idx + 1, j):
                 sum_val = sum_val - gmres_H[k_idx][m] * y_sol[m]
-            if abs_f64(gmres_H[k_idx][k_idx]) > 1e-30:
+            if abs(gmres_H[k_idx][k_idx]) > 1e-30:
                 y_sol[k_idx] = sum_val / gmres_H[k_idx][k_idx]
 
         # x = sum(y[j] * V[j]) -- compute dF2, dF3 from V basis

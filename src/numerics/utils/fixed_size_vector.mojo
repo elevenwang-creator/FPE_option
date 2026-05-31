@@ -11,7 +11,7 @@ instead of scalar element-by-element gathers.
 from std.memory import UnsafePointer, alloc, memcpy, memset_zero
 from std.sys import simd_width_of
 
-from numerics.utils.helpers import abs_f64, max_f64
+from std.math import abs, max
 
 comptime CACHE_LINE_SIZE: Int = 64
 comptime SIMD_WIDTH: Int = simd_width_of[DType.float64]()
@@ -201,8 +201,8 @@ struct FixedSizeVector(Copyable, Movable, Writable):
     @always_inline
     def update_scal(mut self, atol: Float64, rtol: Float64, y: Self):
         assert self._len == y._len
-        var safe_atol = max_f64(atol, 1e-300)
-        var safe_rtol = max_f64(rtol, 1e-300)
+        var safe_atol = max(atol, 1e-300)
+        var safe_rtol = max(rtol, 1e-300)
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
@@ -213,14 +213,14 @@ struct FixedSizeVector(Copyable, Movable, Writable):
             (self._ptr + i).store[width=width](result)
             i += width
         while i < self._len:
-            self._ptr[i] = safe_atol + safe_rtol * abs_f64(y._ptr[i])
+            self._ptr[i] = safe_atol + safe_rtol * abs(y._ptr[i])
             i += 1
 
     @always_inline
     def update_scal_max(mut self, atol: Float64, rtol: Float64, y1: Self, y2: Self):
         assert self._len == y1._len and self._len == y2._len
-        var safe_atol = max_f64(atol, 1e-300)
-        var safe_rtol = max_f64(rtol, 1e-300)
+        var safe_atol = max(atol, 1e-300)
+        var safe_rtol = max(rtol, 1e-300)
         comptime width = SIMD_WIDTH
         var i = 0
         while i + width <= self._len:
@@ -232,7 +232,7 @@ struct FixedSizeVector(Copyable, Movable, Writable):
             (self._ptr + i).store[width=width](result)
             i += width
         while i < self._len:
-            self._ptr[i] = safe_atol + safe_rtol * max_f64(abs_f64(y1._ptr[i]), abs_f64(y2._ptr[i]))
+            self._ptr[i] = safe_atol + safe_rtol * max(abs(y1._ptr[i]), abs(y2._ptr[i]))
             i += 1
 
     @always_inline

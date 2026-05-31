@@ -3,7 +3,7 @@
 from numerics.utils.sparse_lu import SparseLU
 from sparse.csc import CSCMatrix
 from sparse.csr import CSRMatrix
-from numerics.utils import abs_f64
+from std.math import abs
 
 
 def main() raises:
@@ -44,9 +44,7 @@ def main() raises:
     lu.factorize(A_csc)
     print(" Factorization done!")
 
-    var b: List[Float64] = []
-    for _ in range(n):
-        b.append(0.0)
+    var b = List[Float64](length=n, fill=0.0)
     b[0] = 4.0
     b[n - 1] = 4.0
     for i in range(1, n - 1):
@@ -59,7 +57,7 @@ def main() raises:
     var Ax = A_csr.spmv_new(x)
     var residual = 0.0
     for i in range(n):
-        residual = residual + abs_f64(Ax[i] - b[i])
+        residual = residual + abs(Ax[i] - b[i])
     print(" ||Ax - b|| = ", residual)
     print()
 
@@ -97,9 +95,7 @@ def main() raises:
     print(" Factorization done!")
 
     print(" Solving...")
-    var b2: List[Float64] = []
-    for _ in range(n2):
-        b2.append(1.0)
+    var b2 = List[Float64](length=n2, fill=1.0)
     _ = lu2.solve(b2)
     print(" Solve done!")
     print()

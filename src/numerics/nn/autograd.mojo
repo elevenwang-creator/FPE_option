@@ -1,4 +1,4 @@
-from numerics.utils import abs_f64
+from std.math import abs
 from std.math import sin, cos
 
 
@@ -15,12 +15,10 @@ struct GradientTape:
         loss_fn: fn(List[Float64]) raises -> Float64,
         params: List[Float64],
     ) raises -> List[Float64]:
-        var grads: List[Float64] = []
-        for _ in range(len(params)):
-            grads.append(0.0)
+        var grads = List[Float64](length=len(params), fill=0.0)
 
         for i in range(len(params)):
-            var eps = self.epsilon * (1.0 + abs_f64(params[i]))
+            var eps = self.epsilon * (1.0 + abs(params[i]))
             var plus = params.copy()
             var minus = params.copy()
             plus[i] = plus[i] + eps
@@ -129,9 +127,7 @@ struct Tape:
     def backward(mut self, loss_idx: Int):
         """Backward pass: accumulate gradients from loss to all inputs."""
         var n = len(self.entries)
-        self.adjoints = []
-        for _ in range(n):
-            self.adjoints.append(0.0)
+        self.adjoints = List[Float64](length=n, fill=0.0)
         self.adjoints[loss_idx] = 1.0
 
         # Reverse topological order

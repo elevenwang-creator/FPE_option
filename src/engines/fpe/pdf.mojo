@@ -4,7 +4,7 @@ Uses Kronecker-structured spmv: kron(Bs, Bv).spmv(q) = vec(Bs @ Q @ Bv^T)
 operates on small 1D factors instead of 2.1M-row kron matrix.
 """
 
-from engines.fpe.domain import FPECachedBasis
+from engines.fpe.domain import FPECachedBasis, FPEDomain
 from sparse.kron_spmv import kron_spmv
 
 
@@ -30,3 +30,14 @@ def pdf_from_cached[ds: Int, dv: Int](
 ) -> List[List[Float64]]:
     var pdf_flat = kron_spmv(cached.Bs, cached.Bv, q_t)
     return _reshape_to_grid(pdf_flat, cached.n_s, cached.n_v)
+
+
+struct PDFComputer[B: Int]:
+    def __init__(out self):
+        pass
+
+    def compute(
+        self, domain: FPEDomain[3, 3], q_t: List[Float64]
+    ) -> List[List[Float64]]:
+        var cached = domain.cached_basis()
+        return pdf_from_cached[3, 3](cached, q_t)

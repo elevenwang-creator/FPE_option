@@ -14,7 +14,8 @@ from engines.nais.fbsde import FBSDEParams, FBSDELoss
 from engines.nais.nais_net import NaisNet
 from engines.nais.utils import _flatten_net_params
 from engines.nais.variance import VarianceProcess
-from numerics.utils import linspace, abs_f64
+from numerics.utils import linspace
+from std.math import abs
 from std.algorithm import parallelize
 
 
@@ -48,7 +49,5 @@ struct GPUTrainer[B: Int]:
         executor.execute_training_on_gpu()
 
         # Return dummy losses since processing was offloaded
-        var losses: List[Float64] = []
-        for _ in range(self.n_iter):
-            losses.append(0.0)
+        var losses = List[Float64](length=self.n_iter, fill=0.0)
         return losses^

@@ -1,4 +1,4 @@
-from numerics.utils import pow_pos, zeros, zeros_3d, zeros_mat
+from numerics.utils import pow_pos, zeros_3d, zeros_mat
 
 from std.math import exp, log, sqrt
 from kernels.nn import rfft, irfft
@@ -113,8 +113,8 @@ struct VolterraProcess[B: Int]:
 
                 # Pad both to length 2N for circular convolution
                 var padded_len = 2 * self.N
-                var dW_padded = zeros(padded_len)
-                var k_padded = zeros(padded_len)
+                var dW_padded = List[Float64](length=padded_len, fill=0.0)
+                var k_padded = List[Float64](length=padded_len, fill=0.0)
                 for i in range(self.N):
                     dW_padded[i] = dW[i]
                     k_padded[i] = kernel[i]

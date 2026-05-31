@@ -1,4 +1,4 @@
-from numerics.utils import max_f64
+from std.math import max
 
 from engines.fpe.domain import FPEDomain
 from engines.fpe.heston_params import HestonParams
@@ -38,7 +38,7 @@ def _integrate_call_price(
             var s_next = domain.s_points_phys[i + 1]
             ds = 0.5 * (s_next - s_prev)
 
-        var payoff = max_f64(s_phys - strike, 0.0)
+        var payoff = max(s_phys - strike, 0.0)
         for j in range(n_v):
             var dv = 1.0
             if j > 0 and j < n_v - 1:

@@ -1,7 +1,6 @@
 """Verify Schur decomposition values and test dense LU approach."""
 
-from numerics.utils import abs_f64, zeros
-from std.math import sqrt
+from std.math import sqrt, abs
 
 
 def mat3_mul(A: List[Float64], B: List[Float64]) -> List[Float64]:
@@ -91,7 +90,7 @@ def main() raises:
 
     var max_err = 0.0
     for i in range(9):
-        var err = abs_f64(Q_T_QT[i] - A_flat[i])
+        var err = abs(Q_T_QT[i] - A_flat[i])
         if err > max_err:
             max_err = err
     print("Max error |Q*T*Q^T - A| = ", max_err)
@@ -110,7 +109,7 @@ def main() raises:
     for i in range(3):
         for j in range(3):
             var expected = 1.0 if i == j else 0.0
-            var err = abs_f64(QQ_T[i * 3 + j] - expected)
+            var err = abs(QQ_T[i * 3 + j] - expected)
             if err > max_orth_err:
                 max_orth_err = err
     print("Max orthogonality error = ", max_orth_err)
@@ -123,7 +122,7 @@ def main() raises:
     var tr_2x2 = T_flat[4] + T_flat[8]
     var det_2x2 = T_flat[4] * T_flat[8] - T_flat[5] * T_flat[7]
     var disc = tr_2x2 * tr_2x2 - 4.0 * det_2x2
-    print("  2x2 eigenvalues: ", tr_2x2 / 2.0, " +/- ", sqrt(abs_f64(disc)) / 2.0, "i")
+    print("  2x2 eigenvalues: ", tr_2x2 / 2.0, " +/- ", sqrt(abs(disc)) / 2.0, "i")
     print()
 
     print("Column sums of Q (= row sums of Q^T):")

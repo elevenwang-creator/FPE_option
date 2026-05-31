@@ -30,9 +30,7 @@ def main() raises:
         print(String(x1[i]), end=" ")
     print()
 
-    var Ax1: List[Float64] = []
-    for _ in range(4):
-        Ax1.append(0.0)
+    var Ax1 = List[Float64](length=4, fill=0.0)
     for col in range(4):
         for p in range(A1.colptr[col], A1.colptr[col + 1]):
             var row = A1.indices[p]
@@ -94,9 +92,7 @@ def main() raises:
         print(String(x2[i]), end=" ")
     print()
 
-    var Ax2: List[Float64] = []
-    for _ in range(6):
-        Ax2.append(0.0)
+    var Ax2 = List[Float64](length=6, fill=0.0)
     for col in range(6):
         for p in range(A2.colptr[col], A2.colptr[col + 1]):
             var row = A2.indices[p]

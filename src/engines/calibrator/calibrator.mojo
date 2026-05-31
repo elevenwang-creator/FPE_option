@@ -5,7 +5,7 @@ from numerics.optim.lm import (
     ResidualCallable,
     JacobianCallable,
 )
-from numerics.utils import abs_f64, max_f64, min_f64, zeros
+from std.math import abs, max, min
 
 
 def _params_to_vec(p: HestonParams) -> List[Float64]:
@@ -14,14 +14,14 @@ def _params_to_vec(p: HestonParams) -> List[Float64]:
 
 def _vec_to_params(x: List[Float64], base: HestonParams) -> HestonParams:
     return HestonParams(
-        kappa=max_f64(x[0], 1e-4),
-        theta=max_f64(x[1], 1e-5),
-        sigma=max_f64(x[2], 1e-4),
-        rho=min_f64(0.999, max_f64(-0.999, x[3])),
+        kappa=max(x[0], 1e-4),
+        theta=max(x[1], 1e-5),
+        sigma=max(x[2], 1e-4),
+        rho=min(0.999, max(-0.999, x[3])),
         r=base.r,
         T=base.T,
         S0=base.S0,
-        V0=max_f64(x[4], 1e-6),
+        V0=max(x[4], 1e-6),
         S_min=base.S_min,
         S_max=base.S_max,
         V_min=base.V_min,
@@ -59,10 +59,10 @@ struct CalibratorJacobian[B: Int](JacobianCallable):
         var n = len(x)
         var J: List[List[Float64]] = []
         for _ in range(m):
-            J.append(zeros(n))
+            J.append(List[Float64](length=n, fill=0.0))
 
         for j in range(n):
-            var eps = 1e-6 * (1.0 + abs_f64(x[j]))
+            var eps = 1e-6 * (1.0 + abs(x[j]))
             var xp = x.copy()
             var xm = x.copy()
             xp[j] = xp[j] + eps

@@ -8,9 +8,7 @@ comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
 def vec_scale(src: List[Float64], alpha: Float64) -> List[Float64]:
     var n = len(src)
-    var out = List[Float64]()
-    for _ in range(n):
-        out.append(0.0)
+    var out = List[Float64](length=n, fill=0.0)
     var s_ptr = src.unsafe_ptr()
     var r_ptr = out.unsafe_ptr()
 
@@ -22,51 +20,11 @@ def vec_scale(src: List[Float64], alpha: Float64) -> List[Float64]:
     return out^
 
 
-def vec_fma(
-    a: List[Float64], b: List[Float64], alpha: Float64
-) -> List[Float64]:
-    var n = len(a)
-    var out = List[Float64]()
-    for _ in range(n):
-        out.append(0.0)
-    var a_ptr = a.unsafe_ptr()
-    var b_ptr = b.unsafe_ptr()
-    var r_ptr = out.unsafe_ptr()
-
-    def vfma[width: Int](p_off: Int) {read alpha, read a_ptr, read b_ptr, read r_ptr}:
-        for w in range(width):
-            r_ptr[p_off + w] = a_ptr[p_off + w] + alpha * b_ptr[p_off + w]
-
-    vectorize[SIMD_W](n, vfma)
-    return out^
-
-
-def vec_axpy(
-    alpha: Float64, x: List[Float64], y: List[Float64]
-) -> List[Float64]:
-    var n = len(x)
-    var out = List[Float64]()
-    for _ in range(n):
-        out.append(0.0)
-    var x_ptr = x.unsafe_ptr()
-    var y_ptr = y.unsafe_ptr()
-    var r_ptr = out.unsafe_ptr()
-
-    def vaxpy[width: Int](p_off: Int) {read alpha, read x_ptr, read y_ptr, read r_ptr}:
-        for w in range(width):
-            r_ptr[p_off + w] = alpha * x_ptr[p_off + w] + y_ptr[p_off + w]
-
-    vectorize[SIMD_W](n, vaxpy)
-    return out^
-
-
 def vec_central_diff(
     p_up: List[Float64], p_dn: List[Float64], h: Float64
 ) -> List[Float64]:
     var n = len(p_up)
-    var out = List[Float64]()
-    for _ in range(n):
-        out.append(0.0)
+    var out = List[Float64](length=n, fill=0.0)
     var up_ptr = p_up.unsafe_ptr()
     var dn_ptr = p_dn.unsafe_ptr()
     var r_ptr = out.unsafe_ptr()
@@ -84,9 +42,7 @@ def vec_second_diff(
     p_up: List[Float64], p_base: List[Float64], p_dn: List[Float64], h: Float64
 ) -> List[Float64]:
     var n = len(p_up)
-    var out = List[Float64]()
-    for _ in range(n):
-        out.append(0.0)
+    var out = List[Float64](length=n, fill=0.0)
     var up_ptr = p_up.unsafe_ptr()
     var base_ptr = p_base.unsafe_ptr()
     var dn_ptr = p_dn.unsafe_ptr()

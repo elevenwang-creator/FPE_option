@@ -1,10 +1,10 @@
-from numerics.utils.linalg import lu_solve, dense_matvec
-from numerics.utils import abs_f64
+from numerics.utils.linalg import lu_solve
+from std.math import abs
 from std.testing import assert_true, TestSuite
 
 
 def _close(a: Float64, b: Float64, tol: Float64 = 1e-8) -> Bool:
-    return abs_f64(a - b) < tol
+    return abs(a - b) < tol
 
 
 def test_lu_solve_identity() raises:
@@ -32,18 +32,6 @@ def test_lu_solve_2x2() raises:
     # 2x + y = 5, x + 3y = 7 => x=1.6, y=1.8
     assert_true(_close(x[0], 1.6))
     assert_true(_close(x[1], 1.8))
-
-
-def test_dense_matvec() raises:
-    """dense_matvec(A, x) should compute A @ x."""
-    var A: List[List[Float64]] = [
-        [1.0, 2.0],
-        [3.0, 4.0],
-    ]
-    var x: List[Float64] = [1.0, 2.0]
-    var y = dense_matvec(A, x)
-    assert_true(_close(y[0], 5.0))
-    assert_true(_close(y[1], 11.0))
 
 
 def main() raises:
