@@ -1,18 +1,8 @@
-from std.math import exp, log
 from std.algorithm.backend.vectorize import vectorize
 from std.memory import Span
 from std.sys import simd_width_of
 
 comptime SIMD_W: Int = simd_width_of[DType.float64]()
-
-
-@always_inline
-def clamp_int(x: Int, lo: Int, hi: Int) -> Int:
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
 
 
 def zeros_mat(nrows: Int, ncols: Int) -> List[List[Float64]]:
@@ -43,7 +33,7 @@ def copy_mat(src: List[List[Float64]]) -> List[List[Float64]]:
 def pow_pos(x: Float64, p: Float64) -> Float64:
     if x <= 0.0:
         return 0.0
-    return exp(log(x) * p)
+    return x ** p
 
 
 def linspace(start: Float64, end: Float64, n: Int) -> List[Float64]:

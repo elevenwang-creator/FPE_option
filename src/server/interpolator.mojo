@@ -7,7 +7,7 @@ for bicubic (< 4 points in either dimension).
 """
 
 from server.pricer import PDFGrid
-from numerics.utils import clamp_int
+from std.math import clamp
 
 
 @always_inline
@@ -152,10 +152,10 @@ struct Interpolator(Copyable, Movable):
         # 4×4 weighted sum
         var result = 0.0
         for di in range(4):
-            var ii = clamp_int(i - 1 + di, 0, n_s - 1)
+            var ii = clamp(i - 1 + di, 0, n_s - 1)
             var ws_val = ws[di]
             for dj in range(4):
-                var jj = clamp_int(j - 1 + dj, 0, n_v - 1)
+                var jj = clamp(j - 1 + dj, 0, n_v - 1)
                 result += ws_val * wv[dj] * grid.pdf[ii][jj]
         return result
 

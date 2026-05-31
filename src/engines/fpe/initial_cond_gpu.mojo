@@ -32,7 +32,7 @@ def delta_gpu_kernel(
     var v_sigma = 0.1 * sigma
     if v_sigma < 0.001:
         v_sigma = 0.001
-    var norm = 1.0 / (2.0 * 3.14159265358979323846 * s_sigma * v_sigma)
+    var norm = 1.0 / (2.0 * pi * s_sigma * v_sigma)
     var base_grid = b * (n_s_ext + n_s_ext)
     var base_out = b * n_s * n_v
 

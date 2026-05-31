@@ -159,7 +159,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
         var atol_work = rtol_work * (self.atol / self.rtol)
 
         var fnewt = max(
-            10.0 * uround / rtol_work, min(0.03, rtol_work**0.5)
+            10.0 * uround / rtol_work, min(0.03, sqrt(rtol_work))
         )
 
         var scal = FixedSizeVector(n)
@@ -505,7 +505,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
             var fac = min(safety, cfac / Float64(newt + 2 * nit))
             var quot = max(
-                1.0 / fac2, min(1.0 / fac1, err_norm**0.25 / fac)
+                1.0 / fac2, min(1.0 / fac1, sqrt(sqrt(err_norm)) / fac)
             )
             var h_new = h / quot
 
@@ -540,7 +540,7 @@ struct RadauSparseLinearSolver[System: LinearODESystem]:
 
                 if n_accepted > 1:
                     var facgus = (
-                        (hacc / h) * (err_norm**2 / erracc) ** 0.25 / safety
+                        (hacc / h) * sqrt(sqrt(err_norm**2 / erracc)) / safety
                     )
                     facgus = max(1.0 / fac2, min(1.0 / fac1, facgus))
                     quot = max(quot, facgus)

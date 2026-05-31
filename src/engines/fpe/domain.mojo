@@ -10,7 +10,8 @@ from numerics.bspline.basis import BSplineBasis
 from numerics.bspline.recombination import RecombinationBasis, recomb_eval_all, recomb_first_derivative_all
 from numerics.bspline.tensor_product import TensorProductBasis
 from engines.fpe.heston_params import HestonParams
-from numerics.utils.helpers import normalize
+from numerics.utils.helpers import linspace, normalize
+from std.memory import Span
 from sparse.csr import CSRMatrix
 from sparse.diag import DiagMatrix
 from sparse.kron import kron
@@ -40,76 +41,38 @@ def _grid_create(
     var grid: List[Float64] = []
 
     # Coarse lower tail: lo to lb_interm
-    for i in range(left_trail):
-        grid.append(lo + Float64(i) / Float64(left_trail - 1) * (lb_interm - lo))
+    grid += linspace(lo, lb_interm, left_trail)
 
     # Approaching mean: lb_interm to center - std/5
-    var n_app = num_interm // 3
-    if n_app < 1:
-        n_app = 1
-    var app_lo = lb_interm
-    var app_hi = center - std / 5.0
-    for i in range(n_app):
-        grid.append(app_lo + Float64(i) / Float64(n_app - 1) * (app_hi - app_lo))
+    grid += linspace(lb_interm, center - std / 5.0, max(1, num_interm // 3))
 
     # Dense near mean: center - std/5 to center + std/5
-    var n_dense = num_interm // 3
-    if n_dense < 2:
-        n_dense = 2
-    var dense_lo = center - std / 5.0
-    var dense_hi = center + std / 5.0
-    for i in range(n_dense):
-        grid.append(dense_lo + Float64(i) / Float64(n_dense - 1) * (dense_hi - dense_lo))
+    grid += linspace(center - std / 5.0, center + std / 5.0, max(2, num_interm // 3))
 
     # Ensure center is included
     grid.append(center)
 
     # Leaving mean: center + std/5 to ub_interm
-    var n_leave = num_interm // 3
-    if n_leave < 1:
-        n_leave = 1
-    var leave_lo = center + std / 5.0
-    var leave_hi = ub_interm
-    for i in range(n_leave):
-        grid.append(leave_lo + Float64(i) / Float64(n_leave - 1) * (leave_hi - leave_lo))
+    grid += linspace(center + std / 5.0, ub_interm, max(1, num_interm // 3))
 
     # Coarse upper tail: ub_interm to hi
-    for i in range(right_trail):
-        grid.append(ub_interm + Float64(i) / Float64(right_trail - 1) * (hi - ub_interm))
+    grid += linspace(ub_interm, hi, right_trail)
 
     # Extra points near upper boundary
-    var n_up = Int(Float64(num_insert) * 0.1)
-    if n_up < 2:
-        n_up = 2
-    for i in range(n_up):
-        grid.append(hi - 0.1 + Float64(i) / Float64(n_up - 1) * 0.1)
+    grid += linspace(hi - 0.1, hi, max(2, Int(Float64(num_insert) * 0.1)))
 
     # For v: add extra points near v=0
     if is_v:
-        var n_zero = Int(Float64(num_insert) * 0.2)
-        if n_zero < 2:
-            n_zero = 2
-        for i in range(n_zero):
-            grid.append(Float64(i) / Float64(n_zero - 1) * 0.01)
+        grid += linspace(0.0, 0.01, max(2, Int(Float64(num_insert) * 0.2)))
 
-    return _sort_unique(grid)
-
-
-def _sort_unique(mut x: List[Float64]) -> List[Float64]:
-    var n = len(x)
-    for i in range(n):
-        for j in range(i + 1, n):
-            if x[j] < x[i]:
-                var tmp = x[i]
-                x[i] = x[j]
-                x[j] = tmp
+    sort(Span(grid))
+    var n = len(grid)
     var result: List[Float64] = []
-    if n == 0:
-        return result^
-    result.append(x[0])
-    for i in range(1, n):
-        if x[i] != result[len(result) - 1]:
-            result.append(x[i])
+    if n > 0:
+        result.append(grid[0])
+        for i in range(1, n):
+            if grid[i] != result[len(result) - 1]:
+                result.append(grid[i])
     return result^
 
 

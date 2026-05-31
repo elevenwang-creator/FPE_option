@@ -123,7 +123,7 @@ struct GenerateKnots(Copyable, Movable):
         x.append(factor)
 
         var x_len = len(x)
-        x = _insertion_sort(x, x_len)
+        sort(Span(x))
 
         var y = List[Float64](length=x_len, fill=0.0)
 
@@ -158,8 +158,7 @@ struct GenerateKnots(Copyable, Movable):
         for i in range(center_idx + 1, x_len):
             y[i] = 0.5 * a * (x[i] - factor) * (x[i] - factor) + centor
 
-        var y_len = len(y)
-        y = _insertion_sort(y, y_len)
+        sort(Span(y))
 
         return (n_adj, y^)
 
@@ -188,74 +187,7 @@ struct GenerateKnots(Copyable, Movable):
 
         return out^
 
-    def knots_concat(
-        self,
-        knots: List[Float64],
-        medim_knot: List[Float64],
-        left: Float64,
-        right: Float64,
-    ) -> List[Float64]:
-        var left_knots: List[Float64] = []
-        var right_knots: List[Float64] = []
-        for i in range(len(knots)):
-            if abs(knots[i] - left) < 1e-10 or knots[i] < left:
-                left_knots.append(knots[i])
-            if abs(knots[i] - right) < 1e-10 or knots[i] > right:
-                right_knots.append(knots[i])
 
-        var l_len = len(left_knots)
-        var m_len = len(medim_knot)
-        var r_len = len(right_knots)
-        var total = l_len + m_len + r_len
-
-        var merged = List[Float64](length=total, fill=0.0)
-
-        var m_ptr = merged.unsafe_ptr()
-        var l_span = Span(left_knots)
-        var md_span = Span(medim_knot)
-        var r_span = Span(right_knots)
-
-        var li = 0
-        var mi = 0
-        var ri = 0
-        var di = 0
-
-        while li < l_len or mi < m_len or ri < r_len:
-            var v_l = 1e300
-            var v_m = 1e300
-            var v_r = 1e300
-            if li < l_len:
-                v_l = l_span[li]
-            if mi < m_len:
-                v_m = md_span[mi]
-            if ri < r_len:
-                v_r = r_span[ri]
-
-            if v_l <= v_m and v_l <= v_r:
-                m_ptr[di] = v_l
-                li += 1
-            elif v_m <= v_l and v_m <= v_r:
-                m_ptr[di] = v_m
-                mi += 1
-            else:
-                m_ptr[di] = v_r
-                ri += 1
-            di += 1
-
-        var rounded = List[Float64](length=total, fill=0.0)
-        var rd_ptr = rounded.unsafe_ptr()
-
-        for i in range(total):
-            rd_ptr[i] = round(m_ptr[i] * 1e8) / 1e8
-
-        var unique: List[Float64] = []
-        if total > 0:
-            unique.append(rounded[0])
-            for i in range(1, total):
-                if rounded[i] > unique[len(unique) - 1] + 1e-9:
-                    unique.append(rounded[i])
-
-        return unique^
 
     def generate_knots(self) -> List[Float64]:
         var p = self.degree
@@ -282,17 +214,41 @@ struct GenerateKnots(Copyable, Movable):
                 x_normal.append(
                     (x_knots[i] - boundary[0]) / (boundary[1] - boundary[0])
                 )
-            var xn_len = len(x_normal)
-            x_normal = _insertion_sort(x_normal, xn_len)
+            sort(Span(x_normal))
 
             var parabolic_result = self.func_parabolic(
                 internal_num, (boundary_normal[0], boundary_normal[1])
             )
             var parabolic_knots = parabolic_result[1].copy()
 
-            internal_knots = self.knots_concat(
-                parabolic_knots, x_normal, x_min_normal, x_max_normal
-            )
+            # Filter parabolic knots into left/right by threshold
+            var left_knots: List[Float64] = []
+            var right_knots: List[Float64] = []
+            for i in range(len(parabolic_knots)):
+                var v = parabolic_knots[i]
+                if abs(v - x_min_normal) < 1e-10 or v < x_min_normal:
+                    left_knots.append(v)
+                if abs(v - x_max_normal) < 1e-10 or v > x_max_normal:
+                    right_knots.append(v)
+
+            # Merge, sort, round, dedup
+            var merged = left_knots^
+            merged += x_normal^
+            merged += right_knots^
+            sort(Span(merged))
+
+            var m_total = len(merged)
+            for i in range(m_total):
+                merged[i] = round(merged[i] * 1e8) / 1e8
+
+            var unique: List[Float64] = []
+            if m_total > 0:
+                unique.append(merged[0])
+                for i in range(1, m_total):
+                    if merged[i] > unique[len(unique) - 1] + 1e-9:
+                        unique.append(merged[i])
+
+            internal_knots = unique^
 
         var i_len = len(internal_knots)
         var total = 2 * p + i_len
@@ -314,16 +270,4 @@ struct GenerateKnots(Copyable, Movable):
         return final_knots^
 
 
-def _insertion_sort(mut x: List[Float64], n: Int) -> List[Float64]:
-    var result = x^
-    x = List[Float64]()
-    if n > 1:
-        var x_ptr = result.unsafe_ptr()
-        for i in range(1, n):
-            var key = x_ptr[i]
-            var j = i - 1
-            while j >= 0 and x_ptr[j] > key:
-                x_ptr[j + 1] = x_ptr[j]
-                j -= 1
-            x_ptr[j + 1] = key
-    return result^
+
