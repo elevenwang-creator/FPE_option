@@ -143,7 +143,7 @@ def _apply_gradients(mut net: NaisNet, grads: List[Float64], lr: Float64):
 
 
 @fieldwise_init
-struct Trainer[B: Int]:
+struct Trainer:
     var learning_rate: Float64
     var n_iter: Int
 
@@ -157,7 +157,7 @@ struct Trainer[B: Int]:
         var W = _generate_brownian_paths(params.M, params.N, params.D)
         var BM = _generate_brownian_paths(params.M, params.N, 1)
 
-        var var_proc = VarianceProcess[Self.B](
+        var var_proc = VarianceProcess(
             T=params.T,
             N=params.N,
             D=params.D,
@@ -167,14 +167,17 @@ struct Trainer[B: Int]:
         )
         var Var = var_proc.compute(W)
 
-        var fbsde = FBSDELoss[Self.B](
+        var fbsde = FBSDELoss(
             pho=params.pho, r=params.r, epsilon_t=params.epsilon_t
         )
 
         for _ in range(self.n_iter):
-            var loss = fbsde.compute(
-                net, t_grid, W[0], BM[0], Var[0], params.Xi
-            )
+            var loss = 0.0
+            for m in range(params.M):
+                loss += fbsde.compute(
+                    net, t_grid, W[m], BM[m], Var[m], params.Xi
+                )
+            loss /= Float64(params.M)
 
             var net_params = _flatten_net_params(net)
             var grads: List[Float64] = []
@@ -190,12 +193,17 @@ struct Trainer[B: Int]:
                 _unflatten_net_params(plus, net_plus)
                 _unflatten_net_params(minus, net_minus)
 
-                var lp = fbsde.compute(
-                    net_plus, t_grid, W[0], BM[0], Var[0], params.Xi
-                )
-                var lm = fbsde.compute(
-                    net_minus, t_grid, W[0], BM[0], Var[0], params.Xi
-                )
+                var lp = 0.0
+                var lm = 0.0
+                for m in range(params.M):
+                    lp += fbsde.compute(
+                        net_plus, t_grid, W[m], BM[m], Var[m], params.Xi
+                    )
+                    lm += fbsde.compute(
+                        net_minus, t_grid, W[m], BM[m], Var[m], params.Xi
+                    )
+                lp /= Float64(params.M)
+                lm /= Float64(params.M)
                 grads.append((lp - lm) / (2.0 * eps))
 
             _apply_gradients(net, grads, self.learning_rate)

@@ -11,6 +11,7 @@ from std.algorithm.backend.vectorize import vectorize
 from std.memory import Span
 from std.sys import simd_width_of
 from sparse.csr import CSRMatrix
+from sparse.scratch import ScratchBuffer
 
 comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
@@ -27,7 +28,7 @@ def diag_row_scale(D: CSRMatrix, S: CSRMatrix) -> CSRMatrix:
         return CSRMatrix(S.nrows, S.ncols)
 
     var n_diag = D.nrows
-    var diag_vals = alloc[Float64](n_diag)
+    var diag_vals = ScratchBuffer[Float64](n_diag)
     for j in range(n_diag):
         var d_start = D.indptr[j]
         var d_end = D.indptr[j + 1]
@@ -78,7 +79,6 @@ def diag_row_scale(D: CSRMatrix, S: CSRMatrix) -> CSRMatrix:
     for _i in range(S.nrows):
         fill_row(_i)
 
-    diag_vals.free()
     return result^
 
 

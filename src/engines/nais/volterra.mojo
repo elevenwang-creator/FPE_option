@@ -30,7 +30,7 @@ def _complex_multiply(a: List[Float64], b: List[Float64]) -> List[Float64]:
 
 
 @fieldwise_init
-struct VolterraProcess[B: Int]:
+struct VolterraProcess:
     """Fractional Brownian motion via hybrid scheme (direct convolution)."""
 
     var T: Float64

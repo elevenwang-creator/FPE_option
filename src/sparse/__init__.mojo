@@ -7,3 +7,4 @@ from sparse.diag_scale import diag_scale
 from sparse.diag_mul import diag_row_scale
 from sparse.kron import kron
 from sparse.spgemm import spgemm
+from sparse.scratch import ScratchBuffer

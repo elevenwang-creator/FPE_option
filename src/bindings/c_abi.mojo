@@ -83,6 +83,10 @@ def _mat_to_heap(
     var n_cols = len(data[0])
     if n_cols == 0:
         return (_null_f64(), 0, 0)
+    if n_rows == 0 or n_cols == 0:
+        return (_null_f64(), 0, 0)
+    if n_rows > (1 << 62) // n_cols:
+        return (_null_f64(), 0, 0)
     var total = n_rows * n_cols
     var ptr = alloc[Float64](total)
     for i in range(n_rows):
@@ -432,7 +436,15 @@ def fpe_compute_free_grid_pts(ptr: UnsafePointer[FpeGridPtsResult, MutExternalOr
 @export("fpe_compute_free_mat", ABI="C")
 def fpe_compute_free_mat(ptr: UnsafePointer[FpeMatResult, MutExternalOrigin]):
     var r = ptr[]
-    var total = Int(r.n_rows) * Int(r.n_cols)
+    var n_rows = Int(r.n_rows)
+    var n_cols = Int(r.n_cols)
+    if n_rows == 0 or n_cols == 0:
+        _free_heap(r.data, 0)
+        return
+    if n_rows > (1 << 62) // n_cols:
+        _free_heap(r.data, 0)
+        return
+    var total = n_rows * n_cols
     _free_heap(r.data, total)
 
 

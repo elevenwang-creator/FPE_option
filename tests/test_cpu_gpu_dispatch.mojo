@@ -45,7 +45,7 @@ def test_single_option_uses_cpu() raises:
     var domain = FPEDomain(params, n_s=6, n_v=6, degree_s=2, degree_v=2)
 
     # B=1 → CPU path
-    var solver_cpu = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver_cpu = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.0, 0.1]
     var sol = solver_cpu.solve(domain, params, t_eval)
 
@@ -79,7 +79,7 @@ def test_cpu_single_produces_valid_pdf() raises:
     )
 
     var domain = FPEDomain(params, n_s=8, n_v=8, degree_s=3, degree_v=3)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.0, 0.1]
     var sol = solver.solve(domain, params, t_eval)
 

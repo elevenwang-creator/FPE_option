@@ -5,7 +5,7 @@ from std.math import exp, log
 
 
 @fieldwise_init
-struct VarianceProcess[B: Int]:
+struct VarianceProcess:
     """Rough Bergomi variance process: ε(t)·exp(η·X̃ - 0.5η²t^{2H})."""
 
     var T: Float64
@@ -18,7 +18,7 @@ struct VarianceProcess[B: Int]:
     def compute(
         self, W: List[List[List[Float64]]]
     ) -> List[List[List[Float64]]]:
-        var volterra = VolterraProcess[Self.B](
+        var volterra = VolterraProcess(
             T=self.T, N=self.N, D=self.D, H=self.H
         )
         var X_tilde = volterra.generate(W)

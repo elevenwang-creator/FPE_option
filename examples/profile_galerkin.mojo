@@ -54,7 +54,7 @@ def main() raises:
     print()
     print("=== ODE solve ===")
     var t_eval = [0.0, params.T]
-    var fpe_solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.1, first_step=1e-6)
+    var fpe_solver = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.1, first_step=1e-6)
     var t_ode = now()
     var q_t = fpe_solver.solve(domain, params, t_eval^)
     var t_ode_end = now()

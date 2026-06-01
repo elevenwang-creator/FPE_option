@@ -1,7 +1,7 @@
 from engines.fpe.heston_params import HestonParams
 from engines.fpe.domain import FPEDomain
 from engines.fpe.galerkin import GalerkinAssembler
-from numerics.utils import max_f64, min_f64, abs_f64
+from std.math import max, min, abs
 
 
 def main() raises:
@@ -26,8 +26,8 @@ def main() raises:
         var row_sum = 0.0
         for p in range(Phi.indptr[k], Phi.indptr[k + 1]):
             row_sum += Phi.data[p]
-        pou_min = min_f64(pou_min, row_sum)
-        pou_max = max_f64(pou_max, row_sum)
+        pou_min = min(pou_min, row_sum)
+        pou_max = max(pou_max, row_sum)
         pou_sum += row_sum
     print("Partition of unity: min=" + String(pou_min) + " max=" + String(pou_max) + " mean=" + String(pou_sum / Float64(n_pts)))
     
@@ -55,10 +55,10 @@ def main() raises:
     var diff_max = 0.0
     var diff_rel_max = 0.0
     for j in range(n_basis):
-        var diff = abs_f64(M_rowsum[j] - m_vec[j])
-        diff_max = max_f64(diff_max, diff)
-        if abs_f64(M_rowsum[j]) > 1e-14:
-            diff_rel_max = max_f64(diff_rel_max, diff / abs_f64(M_rowsum[j]))
+        var diff = abs(M_rowsum[j] - m_vec[j])
+        diff_max = max(diff_max, diff)
+        if abs(M_rowsum[j]) > 1e-14:
+            diff_rel_max = max(diff_rel_max, diff / abs(M_rowsum[j]))
     print("M*1 vs m: max_abs_diff=" + String(diff_max) + " max_rel_diff=" + String(diff_rel_max))
     
     var m_sum = 0.0; var M1_sum = 0.0

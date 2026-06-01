@@ -1,7 +1,7 @@
 [workspace]
 name = "fpe-engine"
-version = "0.1.0"
-description = "FPE Option Pricing Engine — Mojo + MAX AI Kernels"
+version = "0.0.0"
+description = "FPE Option Pricing Engine — Mojo + MAX AI Kernels (version from git tag)"
 channels = [
     "https://conda.modular.com/max-nightly",
     "https://repo.prefix.dev/modular-community",
@@ -12,7 +12,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "fpe-engine"
-version = "0.1.0"
+version = "0.0.0"
 
 [package.build]
 backend = { name = "pixi-build-rattler-build", version = "*", channels = [
@@ -39,8 +39,11 @@ nbconvert = ">=7.17.1,<8"
 [tasks]
 build = "bash scripts/build_cpp.sh"
 test = "python -m pytest tests/test_pricer_stepwise.py -v"
-test-mojo = "mojo test -I src tests/"
-bench = "mojo run -I src benchmarks/bench_fpe_solve.mojo"
+test-mojo = "mojo run -I src tests/test_add.mojo"
+test-fpe = "bash scripts/test_fpe.sh"
+bench = "mojo run -I src benchmarks/bench_vs_python.mojo"
+bench-py-ref = "python debug_python_ref.py"
+bench-py-binding = "python -c \"from fpe_engine import Compute; from time import perf_counter as n; p=Compute(S0=60,V0=0.1,T=0.6,r=0.1,kappa=1.2,theta=0.05,sigma=0.35,rho=-0.4,n_s=38,n_v=38,barrier=50,option_type='down_and_out_call'); s=n(); p.payoff_price([65,70,75,80,85,90,95,100]); print('time:',n()-s)\""
 gpu-test = "mojo run -I src --target-accelerator=metal:1 tests/test_metal_gpu.mojo"
 
 cpp-run = "bash scripts/run_cpp.sh demo"

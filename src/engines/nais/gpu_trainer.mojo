@@ -20,7 +20,7 @@ from std.algorithm import parallelize
 
 
 @fieldwise_init
-struct GPUTrainer[B: Int]:
+struct GPUTrainer:
     """CPU-parallel training loop for NAIS-Net.
 
     Uses parallelize[] for CPU batch parallelism in finite-difference
@@ -46,8 +46,5 @@ struct GPUTrainer[B: Int]:
             n_iter=self.n_iter,
             n_params=n_params,
         )
-        executor.execute_training_on_gpu()
-
-        # Return dummy losses since processing was offloaded
-        var losses = List[Float64](length=self.n_iter, fill=0.0)
+        var losses = executor.execute_training_on_gpu()
         return losses^

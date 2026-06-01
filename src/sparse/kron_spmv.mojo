@@ -7,6 +7,7 @@ For kron(sw_diag, vw_diag).spmv(v) = elementwise sw[i]*vw[j]*v[k].
 """
 
 from sparse.csr import CSRMatrix
+from sparse.scratch import ScratchBuffer
 
 
 def kron_spmv(
@@ -26,11 +27,11 @@ def kron_spmv(
     var n = B.nrows
     var q = B.ncols
 
-    var X = alloc[Float64](p * q)
+    var X = ScratchBuffer[Float64](p * q)
     for k in range(p * q):
         X[k] = x[k]
 
-    var W = alloc[Float64](p * n)
+    var W = ScratchBuffer[Float64](p * n)
     for k in range(p * n):
         W[k] = 0.0
 
@@ -41,12 +42,12 @@ def kron_spmv(
             var b_end = B.indptr[j + 1]
             for bp in range(b_start, b_end):
                 var l = B.indices[bp]
+                if l < 0 or l >= q:
+                    continue
                 w_val += B.data[bp] * X[k * q + l]
             W[k * n + j] = w_val
 
-    X.free()
-
-    var Y = alloc[Float64](m * n)
+    var Y = ScratchBuffer[Float64](m * n)
     for k in range(m * n):
         Y[k] = 0.0
 
@@ -56,16 +57,15 @@ def kron_spmv(
         for ap in range(a_start, a_end):
             var a_val = A.data[ap]
             var k = A.indices[ap]
+            if k < 0 or k >= p:
+                continue
             for j in range(n):
                 Y[i * n + j] += a_val * W[k * n + j]
-
-    W.free()
 
     var result: List[Float64] = []
     for k in range(m * n):
         result.append(Y[k])
 
-    Y.free()
     return result^
 
 
@@ -86,11 +86,11 @@ def kron_T_spmv(
     var q = B_T.nrows
     var n = B_T.ncols
 
-    var V = alloc[Float64](m * n)
+    var V = ScratchBuffer[Float64](m * n)
     for k in range(m * n):
         V[k] = v[k]
 
-    var W = alloc[Float64](m * q)
+    var W = ScratchBuffer[Float64](m * q)
     for k in range(m * q):
         W[k] = 0.0
 
@@ -100,12 +100,12 @@ def kron_T_spmv(
         for bp in range(bt_start, bt_end):
             var j = B_T.indices[bp]
             var b_val = B_T.data[bp]
+            if j < 0 or j >= n:
+                continue
             for i in range(m):
                 W[i * q + l] += b_val * V[i * n + j]
 
-    V.free()
-
-    var Y = alloc[Float64](p * q)
+    var Y = ScratchBuffer[Float64](p * q)
     for k in range(p * q):
         Y[k] = 0.0
 
@@ -115,16 +115,15 @@ def kron_T_spmv(
         for atp in range(at_start, at_end):
             var at_val = A_T.data[atp]
             var i = A_T.indices[atp]
+            if i < 0 or i >= m:
+                continue
             for l in range(q):
                 Y[k * q + l] += at_val * W[i * q + l]
-
-    W.free()
 
     var result: List[Float64] = []
     for k in range(p * q):
         result.append(Y[k])
 
-    Y.free()
     return result^
 
 

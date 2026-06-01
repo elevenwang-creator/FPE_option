@@ -32,7 +32,7 @@ def test_pipeline1_single_pricing_cpu() raises:
     )
 
     var domain = FPEDomain(params, n_s=6, n_v=6, degree_s=2, degree_v=2)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.0, 0.1]
     var sol = solver.solve(domain, params, t_eval)
 
@@ -48,7 +48,7 @@ def test_pipeline2_batch_pricing_gpu() raises:
     )
 
     var domain = FPEDomain(params, n_s=6, n_v=6, degree_s=2, degree_v=2)
-    var solver = FPESolver[2](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.0, 0.1]
     var sol = solver.solve(domain, params, t_eval)
 
@@ -78,7 +78,7 @@ def test_pipeline3_calibration_gpu() raises:
 def test_pipeline4_nais_training_gpu() raises:
     """Pipeline 4: NAIS portfolio pricing on GPU (B=2 through Trainer[2])."""
     var net = NaisNet(in_dim=3, hidden=6, phi_dim=2)
-    var trainer = Trainer[2](learning_rate=1e-2, n_iter=3)
+    var trainer = Trainer(learning_rate=1e-2, n_iter=3)
     var params = FBSDEParams(
         Xi=[100.0, 0.04], T=0.2, M=4, N=6, D=1,
         H=0.1, eta=1.2, pho=-0.7, r=0.02, epsilon_t=0.09,

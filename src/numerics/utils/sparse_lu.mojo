@@ -84,10 +84,12 @@ struct SparseLU(Movable):
         self.Uj.clear()
         self.Ux.clear()
 
-        self.Lj.reserve(n * n // 4)
-        self.Lx.reserve(n * n // 4)
-        self.Uj.reserve(n * n // 4)
-        self.Ux.reserve(n * n // 4)
+        var nnz = A.colptr[n]
+        var lu_limit = min(n * n // 4, max(nnz * 3, 8 * n))
+        self.Lj.reserve(lu_limit)
+        self.Lx.reserve(lu_limit)
+        self.Uj.reserve(lu_limit)
+        self.Ux.reserve(lu_limit)
         self.w_nz.reserve(n)
 
         for i in range(n):

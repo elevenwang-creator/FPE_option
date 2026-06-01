@@ -20,6 +20,11 @@ import logging
 
 import numpy as np
 
+try:
+    from ._version import __version__
+except ImportError:
+    __version__ = "0.0.0-dev"
+
 _logger = logging.getLogger("fpe_engine")
 
 try:

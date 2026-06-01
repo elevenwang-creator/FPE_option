@@ -13,6 +13,7 @@ Workspace layout per batch element (9n^2 + 14n entries available):
   offset 3n:           block system (9n^2 entries, 3n x 3n)
   offset 3n + 9n^2:    rhs (3n entries)
   offset 3n + 9n^2 + 3n: f1, f2, f3 (3n entries)
+  offset 3n + 9n^2 + 6n: y_stage (3n entries, for matvec dot product)
 """
 
 from std.gpu import block_idx, thread_idx, block_dim, barrier
@@ -80,6 +81,7 @@ def radau5_gpu_kernel(
     var off_block = 3 * n
     var off_rhs = 3 * n + 9 * n * n
     var off_f = 3 * n + 9 * n * n + 3 * n
+    var off_y_stage = off_f + 3 * n
 
     var h_step = 1.0 / Float64(n_steps)
 
@@ -176,21 +178,35 @@ def radau5_gpu_kernel(
                                 )
                             )
                         )
-                    # f_stage = J @ y_stage (matvec)
+                    workspace[base_ws + off_y_stage + stage * n + i_f] = GPU_R_SCALAR(
+                        y_val
+                    )
+                    i_f += Int(threads)
+                barrier()
+
+                # f_stage = J @ y_stage (matvec)
+                var i_f2 = Int(tid)
+                while i_f2 < n:
                     var f_val: Float64 = 0.0
                     for j in range(n):
                         f_val += (
                             Float64(
                                 rebind[GPU_R_SCALAR](
-                                    neg_M_inv_K[base_A + i_f * n + j]
+                                    neg_M_inv_K[base_A + i_f2 * n + j]
                                 )
                             )
-                            * y_val
+                            * Float64(
+                                rebind[GPU_R_SCALAR](
+                                    workspace[
+                                        base_ws + off_y_stage + stage * n + j
+                                    ]
+                                )
+                            )
                         )
-                    workspace[base_ws + off_f + stage * n + i_f] = GPU_R_SCALAR(
+                    workspace[base_ws + off_f + stage * n + i_f2] = GPU_R_SCALAR(
                         f_val
                     )
-                    i_f += Int(threads)
+                    i_f2 += Int(threads)
             barrier()
 
             # Thread-0: check convergence, build and solve 3n x 3n block system
