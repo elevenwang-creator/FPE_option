@@ -199,19 +199,15 @@ Marginal densities obtained by integrating over one dimension.
 
 ### PDF Evolution Animation
 
-The video below shows the PDF evolution from $t=0$ (delta peak at $S_0=60, V_0=0.1$) to $t=T$ under the Heston dynamics.
+The GIFs below show the PDF evolution from $t=0$ (delta peak at $S_0=60, V_0=0.1$) to $t=T$ under the Heston dynamics.
 
 **European call PDF evolution:**
 
-![Terminal PDF 3D](docs/images/terminal_pdf_3d.png)
-
-> ⬆️ Static result. View on [GitHub](https://github.com/elevenwang-creator/FPE_option) for the animated MP4, or download: [`pdf_evolution.mp4`](python/examples/pdf_evolution.mp4)
+![PDF evolution](python/examples/pdf_evolution.gif)
 
 **Barrier call PDF evolution (down-and-out, barrier=50):**
 
-![Terminal PDF 3D](docs/images/terminal_pdf_3d.png)
-
-> ⬆️ Static result. Download: [`pdf_evolution_barrier.mp4`](python/examples/pdf_evolution_barrier.mp4)
+![Barrier PDF evolution](python/examples/pdf_evolution_barrier.gif)
 
 ---
 
