@@ -26,70 +26,47 @@ def _generate_brownian_paths(
     return out^
 
 
-def _flatten_mat(mut p: List[Float64], W: List[List[Float64]]):
-    """Append all elements of a 2D weight matrix to the flat vector."""
-    for i in range(len(W)):
-        for j in range(len(W[i])):
-            p.append(W[i][j])
-
-
-def _flatten_vec(mut p: List[Float64], b: List[Float64]):
-    """Append all elements of a bias vector to the flat vector."""
-    for j in range(len(b)):
-        p.append(b[j])
-
-
 def _flatten_net_params(net: NaisNet) -> List[Float64]:
-    """Serialize all network weights into a flat vector for optimization."""
     var p: List[Float64] = []
 
-    # Layer 1
-    _flatten_mat(p, net.layer1)
-    _flatten_vec(p, net.layer1_b)
+    for v in net.layer1_T_flat:
+        p.append(v)
+    for v in net.layer1_b:
+        p.append(v)
 
-    # Layers 2-4
-    _flatten_mat(p, net.layer2.W)
-    _flatten_vec(p, net.layer2.b)
-    _flatten_mat(p, net.layer3.W)
-    _flatten_vec(p, net.layer3.b)
-    _flatten_mat(p, net.layer4.W)
-    _flatten_vec(p, net.layer4.b)
+    for v in net.layer2.W_T_flat:
+        p.append(v)
+    for v in net.layer2.b:
+        p.append(v)
+    for v in net.layer3.W_T_flat:
+        p.append(v)
+    for v in net.layer3.b:
+        p.append(v)
+    for v in net.layer4.W_T_flat:
+        p.append(v)
+    for v in net.layer4.b:
+        p.append(v)
 
-    # Skip connections
-    _flatten_mat(p, net.layer2_input)
-    _flatten_vec(p, net.layer2_input_b)
-    _flatten_mat(p, net.layer3_input)
-    _flatten_vec(p, net.layer3_input_b)
-    _flatten_mat(p, net.layer4_input)
-    _flatten_vec(p, net.layer4_input_b)
+    for v in net.layer2_input_T_flat:
+        p.append(v)
+    for v in net.layer2_input_b:
+        p.append(v)
+    for v in net.layer3_input_T_flat:
+        p.append(v)
+    for v in net.layer3_input_b:
+        p.append(v)
+    for v in net.layer4_input_T_flat:
+        p.append(v)
+    for v in net.layer4_input_b:
+        p.append(v)
 
-    # Output layers
-    _flatten_mat(p, net.layer5)
-    _flatten_vec(p, net.layer5_b)
-    _flatten_mat(p, net.layer6)
-    _flatten_vec(p, net.layer6_b)
+    for v in net.layer5_T_flat:
+        p.append(v)
+    for v in net.layer5_b:
+        p.append(v)
+    for v in net.layer6_T_flat:
+        p.append(v)
+    for v in net.layer6_b:
+        p.append(v)
 
     return p^
-
-
-def _unflatten_mat(
-    p: List[Float64], idx: Int, mut W: List[List[Float64]]
-) -> Int:
-    """Read elements from flat vector into a 2D weight matrix. Returns updated idx.
-    """
-    var pos = idx
-    for i in range(len(W)):
-        for j in range(len(W[i])):
-            W[i][j] = p[pos]
-            pos += 1
-    return pos
-
-
-def _unflatten_vec(p: List[Float64], idx: Int, mut b: List[Float64]) -> Int:
-    """Read elements from flat vector into a bias vector. Returns updated idx.
-    """
-    var pos = idx
-    for j in range(len(b)):
-        b[j] = p[pos]
-        pos += 1
-    return pos

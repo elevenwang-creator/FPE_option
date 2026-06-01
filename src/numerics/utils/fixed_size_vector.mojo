@@ -1,11 +1,8 @@
-"""Shared numerical utility functions.
+"""SIMD-optimized fixed-size vector type for ODE solver work buffers.
 
-Consolidates duplicated helpers (_abs, _max, _min, _zeros, _copy_vec, etc.)
-from 7+ files into a single source of truth. All hot-path functions are
-@always_inline to eliminate call overhead in inner loops.
-
-Performance: All SIMD operations use contiguous UnsafePointer.load/store
-instead of scalar element-by-element gathers.
+Provides pre-allocated contiguous storage with SIMD-vectorized operations
+(add, linear combination, scaled norm, etc.) via UnsafePointer.load/store.
+All hot-path functions are @always_inline to eliminate call overhead.
 """
 
 from std.memory import UnsafePointer, alloc, memcpy, memset_zero

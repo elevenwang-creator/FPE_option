@@ -2,8 +2,8 @@
 
 Optimized with vectorize + Span + unsafe_ptr:
 - chebyshev_knots: vectorize angle/cos/transform
-- func_parabolic: insertion sort (O(n) on nearly-sorted) + vectorize eval
-- knots_concat: sorted 3-way merge (O(n)) + vectorize round + unique scan
+- func_parabolic: sort(Span) + vectorize eval
+- internal knot merge: extend + sort(Span) + inline round + unique scan
 - generate_knots: sequential boundary fill + copy internal
 """
 
