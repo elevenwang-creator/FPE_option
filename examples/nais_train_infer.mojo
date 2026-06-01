@@ -18,7 +18,7 @@ def main():
     )
     
     # 3. Start Trainer loop (GPU integrated Adam gradient paths)
-    var trainer = Trainer[10](n_iter=200, learning_rate=1e-3)
+    var trainer = Trainer(n_iter=200, learning_rate=1e-3)
     # var losses = trainer.train(model, params)
     
     # 4. Inference

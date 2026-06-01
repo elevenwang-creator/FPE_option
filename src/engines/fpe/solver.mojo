@@ -34,7 +34,7 @@ struct FPESparseLinearSystem(LinearODESystem):
 
 
 @fieldwise_init
-struct FPESolver[B: Int]:
+struct FPESolver:
     var rtol: Float64
     var atol: Float64
     var max_step: Float64

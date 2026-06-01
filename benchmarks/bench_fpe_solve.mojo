@@ -23,7 +23,7 @@ def bench_fpe_solve() raises:
     )
 
     var domain = FPEDomain(params, n_s=8, n_v=8)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
+    var solver = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.0, 0.1]
 
     var start = now()

@@ -20,7 +20,7 @@ struct FBSDEParams(Copyable, Movable):
 
 
 @fieldwise_init
-struct FBSDELoss[B: Int]:
+struct FBSDELoss:
     """Forward-Backward SDE loss from NAIS_rBM.py loss_function()."""
 
     var pho: Float64

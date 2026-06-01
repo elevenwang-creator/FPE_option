@@ -23,7 +23,7 @@ def test_cpu_parallel_runs() raises:
 
     var domain = FPEDomain(params, n_s=6, n_v=6, degree_s=2, degree_v=2)
 
-    var solver_par = FPESolver[2](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver_par = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05)
     var t_eval: List[Float64] = [0.0, 0.1]
     var sol_par = solver_par.solve(domain, params, t_eval)
 

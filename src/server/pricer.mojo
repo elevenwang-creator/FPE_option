@@ -93,7 +93,7 @@ struct Pricer(Copyable, Movable):
             s_left_cond=fpe_params.s_left_cond(),
             s_right_cond=fpe_params.s_right_cond(),
         )
-        var solver = FPESolver[1](
+        var solver = FPESolver(
             rtol=self.rtol,
             atol=self.atol,
             max_step=revised.T / 5.0,

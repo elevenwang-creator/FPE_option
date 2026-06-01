@@ -86,7 +86,7 @@ struct ComputePipeline(Movable):
                 self.q0 = initial_condition_from_cached(
                     self.cached, self.heston, self.M.copy()
                 )
-            var solver = FPESolver[1](
+            var solver = FPESolver(
                 rtol=1e-4,
                 atol=1e-6,
                 max_step=self.heston.T / 5.0,

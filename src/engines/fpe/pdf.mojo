@@ -32,7 +32,7 @@ def pdf_from_cached[ds: Int, dv: Int](
     return _reshape_to_grid(pdf_flat, cached.n_s, cached.n_v)
 
 
-struct PDFComputer[B: Int]:
+struct PDFComputer:
     def __init__(out self):
         pass
 

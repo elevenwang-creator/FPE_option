@@ -143,7 +143,7 @@ def _apply_gradients(mut net: NaisNet, grads: List[Float64], lr: Float64):
 
 
 @fieldwise_init
-struct Trainer[B: Int]:
+struct Trainer:
     var learning_rate: Float64
     var n_iter: Int
 
@@ -157,7 +157,7 @@ struct Trainer[B: Int]:
         var W = _generate_brownian_paths(params.M, params.N, params.D)
         var BM = _generate_brownian_paths(params.M, params.N, 1)
 
-        var var_proc = VarianceProcess[Self.B](
+        var var_proc = VarianceProcess(
             T=params.T,
             N=params.N,
             D=params.D,
@@ -167,7 +167,7 @@ struct Trainer[B: Int]:
         )
         var Var = var_proc.compute(W)
 
-        var fbsde = FBSDELoss[Self.B](
+        var fbsde = FBSDELoss(
             pho=params.pho, r=params.r, epsilon_t=params.epsilon_t
         )
 

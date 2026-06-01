@@ -20,7 +20,7 @@ from std.algorithm import parallelize
 
 
 @fieldwise_init
-struct GPUTrainer[B: Int]:
+struct GPUTrainer:
     """CPU-parallel training loop for NAIS-Net.
 
     Uses parallelize[] for CPU batch parallelism in finite-difference

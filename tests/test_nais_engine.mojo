@@ -55,7 +55,7 @@ def test_volterra_generate_shape() raises:
         for n in range(1, N + 1):
             W[m][n][0] = W[m][n - 1][0] + 0.01 * Float64(m + n)
 
-    var proc = VolterraProcess[1](T=0.2, N=N, D=D, H=0.1)
+    var proc = VolterraProcess(T=0.2, N=N, D=D, H=0.1)
     var X = proc.generate(W)
     assert_true(len(X) == M)
     assert_true(len(X[0]) == N + 1)
@@ -64,7 +64,7 @@ def test_volterra_generate_shape() raises:
 
 def test_trainer_loss_decreases() raises:
     var net = NaisNet(in_dim=3, hidden=6, phi_dim=2)
-    var trainer = Trainer[1](learning_rate=1e-2, n_iter=5)
+    var trainer = Trainer(learning_rate=1e-2, n_iter=5)
     var params = FBSDEParams(
         Xi=[100.0, 0.04],
         T=0.2,

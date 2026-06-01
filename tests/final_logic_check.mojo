@@ -29,7 +29,7 @@ def main() raises:
     print(" - V Knots count:", len(domain.v_knots))
 
     # 3. Solve FPE System (RadauIIA ODE)
-    var solver = FPESolver[1](rtol=1e-4, atol=1e-6, max_step=0.05)
+    var solver = FPESolver(rtol=1e-4, atol=1e-6, max_step=0.05, first_step=0.0)
     var t_eval: List[Float64] = [0.6]  # Correct Mojo List Literal
     
     print("Step 3: Solving ODE system...")

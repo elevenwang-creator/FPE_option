@@ -69,7 +69,7 @@ def _implied_vol_newton(
 
 
 @fieldwise_init
-struct Inferencer[B: Int]:
+struct Inferencer:
     """Online inference: (t, S, V) -> (price, delta, vol_surface)."""
 
     var net: NaisNet

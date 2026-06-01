@@ -17,7 +17,7 @@ def assert_close(a: Float64, b: Float64, atol: Float64 = 1e-4) raises:
 def test_compute_tracked_matches_compute() raises:
     """Tracked loss should produce same value as regular loss."""
     var net = NaisNet(in_dim=3, hidden=6, phi_dim=2)
-    var loss_fn = FBSDELoss[1](pho=-0.7, r=0.02, epsilon_t=0.09)
+    var loss_fn = FBSDELoss(pho=-0.7, r=0.02, epsilon_t=0.09)
 
     var t: List[Float64] = [0.0, 0.1, 0.2]
     var W: List[List[Float64]] = [[100.0, 101.0, 102.0]]
@@ -36,7 +36,7 @@ def test_compute_tracked_matches_compute() raises:
 def test_compute_tracked_records_operations() raises:
     """Tracked loss should record many operations."""
     var net = NaisNet(in_dim=3, hidden=6, phi_dim=2)
-    var loss_fn = FBSDELoss[1](pho=-0.7, r=0.02, epsilon_t=0.09)
+    var loss_fn = FBSDELoss(pho=-0.7, r=0.02, epsilon_t=0.09)
 
     var t: List[Float64] = [0.0, 0.1, 0.2]
     var W: List[List[Float64]] = [[100.0, 101.0, 102.0]]
