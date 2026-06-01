@@ -52,6 +52,8 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
                 continue
             for bp in range(b_rp_ptr[k], b_rp_ptr[k + 1]):
                 var j = b_cols_span[bp]
+                if j < 0 or j >= ncols:
+                    continue
                 if marker[j] != i:
                     marker[j] = i
                     count += 1
@@ -118,6 +120,8 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
 
             for bp in range(b_len):
                 var j = b_row_cols[bp]
+                if j < 0 or j >= ncols:
+                    continue
                 var prod = prods[bp]
                 if marker[j] < row_start:
                     marker[j] = dest
