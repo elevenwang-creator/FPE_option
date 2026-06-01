@@ -407,6 +407,7 @@ fpe::FpeCompute pricer(
     r=0.1, T=0.6, S0=60.0, V0=0.1,
     n_s=38, n_v=38, barrier=50.0,
     option_type=2,  // down_and_out_call
+    50,              // num_insert
     s_min=0.0, s_max=150.0  // domain bounds (optional, -1 → auto)
 );
 
@@ -428,6 +429,7 @@ auto result = fpe::FpeCompute::price_oneshot(
     {80.0, 90.0, 100.0},      // strikes
     barrier=50.0, option_type=2,
     n_s=38, n_v=38,
+    50,                        // num_insert
     s_min=0.0, s_max=150.0    // domain bounds (optional, -1 → auto)
 );
 // result.price, result.delta, result.gamma, result.vega (each vector<double>)
