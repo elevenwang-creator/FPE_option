@@ -2,7 +2,6 @@
 from std.testing import assert_true, TestSuite
 from engines.fpe.gpu_batch_executor import gpu_batch_solve, _cpu_euler_solve
 from sparse.csr import CSRMatrix
-from numerics.utils import zeros
 from std.sys import has_accelerator
 
 

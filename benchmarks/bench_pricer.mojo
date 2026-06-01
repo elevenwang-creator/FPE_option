@@ -4,7 +4,7 @@ from std.sys import simd_width_of
 from std.algorithm.backend.vectorize import vectorize
 from server.payoffs import BarrierPayoff
 from server.pricer import PDFGrid
-from server.simd_utils import mat_vec_mul
+from numerics.utils import mat_vec_mul
 from layout import TileTensor, coord
 from layout.tile_layout import row_major
 
