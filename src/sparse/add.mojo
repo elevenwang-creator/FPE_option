@@ -15,6 +15,7 @@ from std.algorithm.backend.vectorize import vectorize
 from std.memory import Span
 from std.sys import simd_width_of
 from sparse.csr import CSRMatrix
+from sparse.scratch import ScratchBuffer
 
 comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
@@ -31,7 +32,7 @@ def add(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
     var b_data_span = Span(B.data)
 
     # --- Count phase: compute nnz per output row ---
-    var row_nnz = alloc[Int](nrows)
+    var row_nnz = ScratchBuffer[Int](nrows)
 
     @parameter
     def count_row(i: Int):
@@ -150,5 +151,4 @@ def add(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
     for _i in range(nrows):
         fill_row(_i)
 
-    row_nnz.free()
     return result^

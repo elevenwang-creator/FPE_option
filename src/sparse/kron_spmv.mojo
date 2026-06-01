@@ -7,6 +7,7 @@ For kron(sw_diag, vw_diag).spmv(v) = elementwise sw[i]*vw[j]*v[k].
 """
 
 from sparse.csr import CSRMatrix
+from sparse.scratch import ScratchBuffer
 
 
 def kron_spmv(
@@ -26,11 +27,11 @@ def kron_spmv(
     var n = B.nrows
     var q = B.ncols
 
-    var X = alloc[Float64](p * q)
+    var X = ScratchBuffer[Float64](p * q)
     for k in range(p * q):
         X[k] = x[k]
 
-    var W = alloc[Float64](p * n)
+    var W = ScratchBuffer[Float64](p * n)
     for k in range(p * n):
         W[k] = 0.0
 
@@ -46,9 +47,7 @@ def kron_spmv(
                 w_val += B.data[bp] * X[k * q + l]
             W[k * n + j] = w_val
 
-    X.free()
-
-    var Y = alloc[Float64](m * n)
+    var Y = ScratchBuffer[Float64](m * n)
     for k in range(m * n):
         Y[k] = 0.0
 
@@ -63,13 +62,10 @@ def kron_spmv(
             for j in range(n):
                 Y[i * n + j] += a_val * W[k * n + j]
 
-    W.free()
-
     var result: List[Float64] = []
     for k in range(m * n):
         result.append(Y[k])
 
-    Y.free()
     return result^
 
 
@@ -90,11 +86,11 @@ def kron_T_spmv(
     var q = B_T.nrows
     var n = B_T.ncols
 
-    var V = alloc[Float64](m * n)
+    var V = ScratchBuffer[Float64](m * n)
     for k in range(m * n):
         V[k] = v[k]
 
-    var W = alloc[Float64](m * q)
+    var W = ScratchBuffer[Float64](m * q)
     for k in range(m * q):
         W[k] = 0.0
 
@@ -109,9 +105,7 @@ def kron_T_spmv(
             for i in range(m):
                 W[i * q + l] += b_val * V[i * n + j]
 
-    V.free()
-
-    var Y = alloc[Float64](p * q)
+    var Y = ScratchBuffer[Float64](p * q)
     for k in range(p * q):
         Y[k] = 0.0
 
@@ -126,13 +120,10 @@ def kron_T_spmv(
             for l in range(q):
                 Y[k * q + l] += at_val * W[i * q + l]
 
-    W.free()
-
     var result: List[Float64] = []
     for k in range(p * q):
         result.append(Y[k])
 
-    Y.free()
     return result^
 
 

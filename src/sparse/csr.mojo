@@ -13,6 +13,7 @@ from std.memory import Span, UnsafePointer
 from std.sys import simd_width_of
 from numerics.utils import FixedSizeVector
 from sparse.csc import CSCMatrix
+from sparse.scratch import ScratchBuffer
 from sparse.add import add as sparse_add
 from sparse.scale import scale as sparse_scale
 from sparse.spgemm import spgemm as sparse_spgemm
@@ -321,7 +322,7 @@ struct CSRMatrix(Movable, Writable):
         var data_span = Span(self.data)
         var rp_ptr = self.indptr.unsafe_ptr()
 
-        var col_count = alloc[Int](ncols)
+        var col_count = ScratchBuffer[Int](ncols)
         for j in range(ncols):
             col_count[j] = 0
         for p in range(nnz_val):
@@ -346,7 +347,6 @@ struct CSRMatrix(Movable, Writable):
                 r_data_ptr[dest] = data_span[p]
                 col_count[j] = dest + 1
 
-        col_count.free()
         return result^
 
     def to_csc(self) -> CSCMatrix:
@@ -360,7 +360,7 @@ struct CSRMatrix(Movable, Writable):
         var data_span = Span(self.data)
         var rp_ptr = self.indptr.unsafe_ptr()
 
-        var col_count = alloc[Int](ncols)
+        var col_count = ScratchBuffer[Int](ncols)
         for j in range(ncols):
             col_count[j] = 0
         for p in range(nnz_val):
@@ -385,7 +385,6 @@ struct CSRMatrix(Movable, Writable):
                 r_data_ptr[dest] = data_span[p]
                 col_count[j] = dest + 1
 
-        col_count.free()
         return result^
 
     def to_dense(self) -> List[List[Float64]]:
@@ -408,7 +407,7 @@ struct CSRMatrix(Movable, Writable):
             return CSRMatrix(0, 0)
 
         var ncols = len(dense[0])
-        var row_counts = alloc[Int](nrows)
+        var row_counts = ScratchBuffer[Int](nrows)
         for i in range(nrows):
             row_counts[i] = 0
         for i in range(nrows):
@@ -431,7 +430,6 @@ struct CSRMatrix(Movable, Writable):
                     offset += 1
             result.indptr[i + 1] = offset
 
-        row_counts.free()
         return result^
 
     def write_to(self, mut writer: Some[Writer]):

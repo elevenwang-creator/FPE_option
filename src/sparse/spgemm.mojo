@@ -14,6 +14,7 @@ from std.algorithm.backend.vectorize import vectorize
 from std.memory import Span
 from std.sys import simd_width_of
 from sparse.csr import CSRMatrix
+from sparse.scratch import ScratchBuffer
 
 comptime SIMD_W: Int = simd_width_of[DType.float64]()
 
@@ -33,7 +34,7 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
     var b_data_span = Span(B.data)
 
     # --- Symbolic phase: count nnz per output row ---
-    var row_nnz = alloc[Int](nrows)
+    var row_nnz = ScratchBuffer[Int](nrows)
 
     @parameter
     def count_row(i: Int):
@@ -42,7 +43,7 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
         if r_start == r_end:
             row_nnz[i] = 0
             return
-        var marker = alloc[Int](ncols)
+        var marker = ScratchBuffer[Int](ncols)
         for j in range(ncols):
             marker[j] = -1
         var count = 0
@@ -58,7 +59,6 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
                     marker[j] = i
                     count += 1
         row_nnz[i] = count
-        marker.free()
 
     for _i in range(nrows):
         count_row(_i)
@@ -84,7 +84,7 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
         if r_start == r_end:
             return
         var row_start = r_rp_ptr[i]
-        var marker = alloc[Int](ncols)
+        var marker = ScratchBuffer[Int](ncols)
         for j in range(ncols):
             marker[j] = -1
         var dest = row_start
@@ -105,7 +105,7 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
 
             # vectorize: SIMD batch multiply a_val * b_row_vals
             # Store products, then scatter sequentially
-            var prods = alloc[Float64](b_len)
+            var prods = ScratchBuffer[Float64](b_len)
 
             def vmul[
                 width: Int
@@ -131,8 +131,6 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
                 else:
                     r_data_ptr[marker[j]] += prod
 
-            prods.free()
-
         # Insertion sort the row by column index
         var row_end = dest
         for p in range(row_start + 1, row_end):
@@ -146,10 +144,7 @@ def spgemm(A: CSRMatrix, B: CSRMatrix) -> CSRMatrix:
             r_idx_ptr[q + 1] = key_j
             r_data_ptr[q + 1] = key_v
 
-        marker.free()
-
     for _i in range(nrows):
         compute_row(_i)
 
-    row_nnz.free()
     return result^
