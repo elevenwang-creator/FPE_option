@@ -27,7 +27,7 @@ def bench_fpe_solve() raises:
     var t_eval: List[Float64] = [0.0, 0.1]
 
     var start = now()
-    var sol = solver.solve(domain, params, t_eval)
+    var sol = solver.solve(domain, params, t_eval^)
     var end = now()
     var elapsed = Float64(end - start) / 1e9
 

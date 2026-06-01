@@ -107,11 +107,15 @@ public:
         double kappa, double theta, double sigma, double rho, double r,
         double T, double S0, double V0,
         int32_t n_s, int32_t n_v, double barrier, int32_t option_type,
-        int32_t num_insert = 50
+        int32_t num_insert = 50,
+        double s_min = -1.0, double s_max = -1.0
     ) : ptr_(nullptr) {
+        double s_min_actual = (s_min >= 0.0) ? s_min : 0.0;
+        double s_max_actual = (s_max > 0.0) ? s_max : S0 * 3.0;
         ptr_ = fpe_compute_create(
             kappa, theta, sigma, rho, r, T, S0, V0,
-            n_s, n_v, barrier, option_type, num_insert
+            n_s, n_v, barrier, option_type, num_insert,
+            s_min_actual, s_max_actual
         );
         if (!ptr_) {
             fprintf(stderr, "FpeCompute: failed to create pipeline\n");
@@ -225,14 +229,18 @@ public:
         const std::vector<double>& K,
         double barrier, int32_t option_type,
         int32_t n_s, int32_t n_v,
-        int32_t num_insert = 50
+        int32_t num_insert = 50,
+        double s_min = -1.0, double s_max = -1.0
     ) {
+        double s_min_actual = (s_min >= 0.0) ? s_min : 0.0;
+        double s_max_actual = (s_max > 0.0) ? s_max : S0 * 3.0;
         FpeOneshotResult raw{};
         if (!K.empty()) {
             fpe_price_oneshot(
                 kappa, theta, sigma, rho, r, T, S0, V0,
                 K.data(), int32_t(K.size()),
                 barrier, option_type, n_s, n_v, num_insert,
+                s_min_actual, s_max_actual,
                 &raw
             );
         }

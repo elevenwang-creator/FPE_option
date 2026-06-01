@@ -56,7 +56,8 @@ extern FpeCompute* fpe_compute_create(
     double r, double T, double S0, double V0,
     int32_t n_s, int32_t n_v,
     double barrier, int32_t option_type,
-    int32_t num_insert
+    int32_t num_insert,
+    double s_min, double s_max
 );
 
 extern void fpe_compute_destroy(FpeCompute* ptr);
@@ -94,6 +95,7 @@ extern void fpe_price_oneshot(
     double barrier, int32_t option_type,
     int32_t n_s, int32_t n_v,
     int32_t num_insert,
+    double s_min, double s_max,
     struct FpeOneshotResult* result
 );
 

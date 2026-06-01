@@ -27,6 +27,20 @@ def test_fpe_params_from_kwargs() raises:
     assert_equal(fp.heston.S0, 60.0)
     assert_equal(fp.option_type, 8)
 
+def test_fpe_params_from_kwargs_domain() raises:
+    var builtins = Python.import_module("builtins")
+    var kwargs = Python.dict(
+        S0=PythonObject(60.0), V0=PythonObject(0.1),
+        n_s=PythonObject(16), n_v=PythonObject(16),
+        K=PythonObject(60.0),
+        option_type=PythonObject("european_call"),
+        s_min=PythonObject(10.0), s_max=PythonObject(200.0),
+    )
+    var fp = fpe_params_from_kwargs(kwargs)
+    assert_true(fp.is_valid())
+    assert_equal(fp.heston.S_min, 10.0)
+    assert_equal(fp.heston.S_max, 200.0)
+
 def test_fpe_params_from_kwargs_list_K() raises:
     var builtins = Python.import_module("builtins")
     var k_list = Python.list()

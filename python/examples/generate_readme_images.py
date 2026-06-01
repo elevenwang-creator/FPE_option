@@ -22,7 +22,7 @@ plt.style.use('ggplot')
 plt.rcParams.update({"figure.dpi": 120, "font.size": 11,
                       "axes.titlesize": 13, "axes.labelsize": 11})
 
-HESTON = dict(kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.1, T=0.6, S0=60.0, V0=0.1)
+HESTON = dict(kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4, r=0.1, T=0.6, S0=60.0, V0=0.1, s_min=0.0, s_max=150.0)
 PALETTE = ["#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", "#FFFF33"]
 
 print("Building pricers (n_s=38, n_v=38)...")

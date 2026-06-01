@@ -23,7 +23,7 @@ def main() raises:
     print("Step 1: Heston Parameters initialized.")
 
     # 2. Automated Non-uniform Domain Generation (Triggered by params)
-    var domain = FPEDomain(params, n_s=20, n_v=20, degree_s=3, degree_v=3)
+    var domain = FPEDomain[3, 3](params, n_s=20, n_v=20)
     print("Step 2: Non-uniform Domain generated.")
     print(" - S Knots count:", len(domain.s_knots))
     print(" - V Knots count:", len(domain.v_knots))
@@ -33,7 +33,7 @@ def main() raises:
     var t_eval: List[Float64] = [0.6]  # Correct Mojo List Literal
     
     print("Step 3: Solving ODE system...")
-    var pdf_grid = solver.solve(domain, params, t_eval)
+    var pdf_grid = solver.solve(domain, params, t_eval^)
     
     # 4. Result Inspection
     var n_rows = len(pdf_grid)

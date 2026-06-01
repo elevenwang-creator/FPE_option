@@ -27,7 +27,9 @@ struct HestonParams(Copyable, Hashable, Movable, Writable):
             and self.T > 0.0
             and self.S0 > 0.0
             and self.V0 >= 0.0
+            and self.S_min >= 0.0
             and self.S_max > self.S_min
+            and self.V_min >= 0.0
             and self.V_max > self.V_min
             and self.rho >= -1.0
             and self.rho <= 1.0
@@ -49,8 +51,12 @@ struct HestonParams(Copyable, Hashable, Movable, Writable):
             raise Error("V0 must be non-negative, got " + String(self.V0))
         if self.rho < -1.0 or self.rho > 1.0:
             raise Error("rho must be in [-1, 1], got " + String(self.rho))
+        if self.S_min < 0.0:
+            raise Error("S_min must be >= 0, got " + String(self.S_min))
         if self.S_max <= self.S_min:
             raise Error("S_max must be > S_min")
+        if self.V_min < 0.0:
+            raise Error("V_min must be >= 0, got " + String(self.V_min))
         if self.V_max <= self.V_min:
             raise Error("V_max must be > V_min")
 

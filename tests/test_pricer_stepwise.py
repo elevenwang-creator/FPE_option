@@ -133,6 +133,32 @@ class TestPriceOneShot:
         assert len(pr.prices) == 3
 
 
+class TestDomainBounds:
+    def test_default_s_range(self):
+        c = Compute(S0=60.0, V0=0.1, T=0.6, r=0.1, n_s=8, n_v=8)
+        gp = c.grid_points
+        assert gp.s[0] >= 0.0
+        assert gp.s[-1] <= 60.0 * 3.0
+
+    def test_custom_s_range(self):
+        c = Compute(
+            S0=60.0, V0=0.1, T=0.6, r=0.1,
+            n_s=8, n_v=8,
+            s_min=10.0, s_max=200.0,
+        )
+        gp = c.grid_points
+        assert gp.s[0] >= 10.0
+        assert gp.s[-1] <= 200.0
+
+    def test_custom_s_range_one_shot(self):
+        pr = price(
+            S0=60.0, K=50.0, T=0.6, n_s=16, n_v=16,
+            s_min=10.0, s_max=200.0,
+        )
+        assert len(pr.prices) == 1
+        assert pr.prices[0] > 0
+
+
 class TestGreeks:
     def test_single_strike(self, ctx):
         g = ctx.greeks([100.0])

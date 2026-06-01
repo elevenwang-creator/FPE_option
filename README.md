@@ -53,7 +53,7 @@
 
 This engine solves the **Fokker-Planck equation (FPE)** corresponding to the **Heston stochastic volatility model** using a variational approach with **B-spline basis functions**. The resulting system of ODEs is integrated via the **Radau IIA** implicit Runge-Kutta method (5th order). The computed probability density function (PDF) is then used to price **European and single-barrier options**.
 
-The core numerical engine is written in **[Mojo](https://www.modular.com/mojo)** — a high-performance language that compiles to native code — and exposes APIs for **Python**, **C**, and **C++** consumption. On the same hardware, the Mojo engine achieves approximately **11.3x speedup** over the Python reference implementation for the full pipeline.
+The core numerical engine is written in **[Mojo](https://www.modular.com/mojo)** — a high-performance language that compiles to native code — and exposes APIs for **Python**, **C**, and **C++** consumption. On the same hardware, the Mojo engine achieves approximately **11.2x speedup** over the Python reference implementation for the full pipeline.
 
 ---
 
@@ -128,6 +128,7 @@ where $\mathbf{M}$ is the **mass matrix** and $\mathbf{K}$ is the **stiffness ma
 | Cross-platform: macOS (ARM/x86) + Linux | Yes |
 | Conda package (pixi) | Yes |
 | Auto-versioning from git tags | Yes |
+| Configurable domain bounds (s_min/s_max) | Yes |
 
 ---
 
@@ -270,6 +271,7 @@ result = price(
     K=[80.0, 90.0, 100.0],    # Strike(s) - single float or list
     barrier=50.0,             # 0.0 = no barrier
     option_type="european_call",
+    s_min=0.0, s_max=150.0,   # Domain bounds (optional, defaults: 0, S0*3)
 )
 
 print(f"Price at K=100: {result.prices[0]:.6f}")
@@ -288,6 +290,7 @@ p = Compute(
     kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
     n_s=38, n_v=38,
     option_type="european_call", barrier=0.0,
+    s_min=0.0, s_max=150.0,    # Domain bounds (optional)
 )
 
 # Access intermediate results (lazy-evaluated properties)
@@ -357,7 +360,8 @@ FpeCompute* fpe_compute_create(
     double kappa, double theta, double sigma, double rho,
     double r, double T, double S0, double V0,
     int32_t n_s, int32_t n_v,
-    double barrier, int32_t option_type, int32_t num_insert
+    double barrier, int32_t option_type, int32_t num_insert,
+    double s_min, double s_max    // domain bounds: <0 → auto, ≤0 → S0*3
 );
 
 // One-shot pricing (compute + price + greeks in one call)
@@ -367,6 +371,7 @@ void fpe_price_oneshot(
     const double* K, int32_t n_K,
     double barrier, int32_t option_type,
     int32_t n_s, int32_t n_v, int32_t num_insert,
+    double s_min, double s_max,   // domain bounds: <0 → auto, ≤0 → S0*3
     FpeOneshotResult* result
 );
 
@@ -401,7 +406,8 @@ fpe::FpeCompute pricer(
     kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
     r=0.1, T=0.6, S0=60.0, V0=0.1,
     n_s=38, n_v=38, barrier=50.0,
-    option_type=2  // down_and_out_call
+    option_type=2,  // down_and_out_call
+    s_min=0.0, s_max=150.0  // domain bounds (optional, -1 → auto)
 );
 
 // Access intermediate results (lazy-evaluated, cached)
@@ -421,7 +427,8 @@ auto result = fpe::FpeCompute::price_oneshot(
     r=0.1, T=0.6, S0=60.0, V0=0.1,
     {80.0, 90.0, 100.0},      // strikes
     barrier=50.0, option_type=2,
-    n_s=38, n_v=38
+    n_s=38, n_v=38,
+    s_min=0.0, s_max=150.0    // domain bounds (optional, -1 → auto)
 );
 // result.price, result.delta, result.gamma, result.vega (each vector<double>)
 ```
@@ -522,16 +529,16 @@ The Mojo engine benchmark runs natively, compiled to machine code ([bench_vs_pyt
 
 | Benchmark | Time | vs Python Ref |
 |-----------|-----:|:-------------|
-| Python Reference (solve + price) | 35.28 s | 1.0x |
-| Mojo Engine via Python binding (solve + price only) | 3.96 s | **8.9x faster** |
-| Mojo Engine native (solve + price only) | 3.13 s | **11.3x faster** |
-| Mojo Engine via Python binding (one-shot + Greeks, 8 strikes) | 13.62 s | 2.5x faster |
+| Python Reference (solve + price) | 34.71 s | 1.0x |
+| Mojo Engine via Python binding (solve + price only) | 4.10 s | **8.5x faster** |
+| Mojo Engine native (solve + price only) | 3.09 s | **11.2x faster** |
+| Mojo Engine via Python binding (one-shot + Greeks, 8 strikes) | 13.85 s | 2.5x faster |
 
 ### Binding Overhead
 
 | Language | Interface | Overhead vs Native |
 |----------|-----------|:------------------|
-| Python | `Compute.payoff_price()` through Mojo native module | ~32% (1.0 s data marshaling) |
+| Python | `Compute.payoff_price()` through Mojo native module | ~33% (1.0 s data marshaling) |
 | C / C++ | C ABI `fpe_compute_create/price` through direct .dylib call | negligible (< 1%) |
 
 The Python binding adds ~1 second of marshaling overhead per call. The C ABI and C++ wrapper call the same Mojo backend directly with no marshaling -- identical to the native Mojo benchmark time.
@@ -540,24 +547,24 @@ The Python binding adds ~1 second of marshaling overhead per call. The C ABI and
 
 | Benchmark | Time | Notes |
 |-----------|-----:|-------|
-| One-shot price (8 strikes) | 3.03 s | 1 solve |
-| One-shot price + Greeks (8 strikes) | 13.62 s | 4 more solves (finite differences) |
-| Greeks only (incremental) | 10.59 s | ~3.5x the base solve |
+| One-shot price (8 strikes) | 3.09 s | 1 solve |
+| One-shot price + Greeks (8 strikes) | 13.85 s | 4 more solves (finite differences) |
+| Greeks only (incremental) | 10.76 s | ~3.5x the base solve |
 
 ### Option Price Comparison
 
 Down-and-out barrier call ($B=50$), $n_s = n_v = 38$, Mojo engine vs Python reference:
 
 | Strike | Mojo Engine | Python Ref | Diff |
-|-------:|-----------:|----------:|:----|
-| 65 | 4.439 | 4.438 | +0.02% |
-| 70 | 2.770 | 2.769 | +0.03% |
-| 75 | 1.632 | 1.632 | +0.03% |
-| 80 | 0.920 | 0.919 | +0.05% |
-| 85 | 0.503 | 0.502 | +0.12% |
-| 90 | 0.270 | 0.269 | +0.21% |
-| 95 | 0.143 | 0.143 | +0.37% |
-| 100 | 0.076 | 0.076 | +0.67% |
+|-------:|-----------:|----------:|:-----|
+| 65 | 4.395 | 4.438 | -0.97% |
+| 70 | 2.741 | 2.769 | -1.01% |
+| 75 | 1.609 | 1.632 | -1.38% |
+| 80 | 0.905 | 0.919 | -1.54% |
+| 85 | 0.495 | 0.502 | -1.46% |
+| 90 | 0.264 | 0.269 | -1.93% |
+| 95 | 0.140 | 0.143 | -2.05% |
+| 100 | 0.074 | 0.076 | -1.87% |
 
 Note: the Mojo engine prices are for down-and-out barrier call with $B=50$, while the Python reference solves the FPE without barrier conditions and prices vanilla calls. The close agreement validates the barrier implementation.
 

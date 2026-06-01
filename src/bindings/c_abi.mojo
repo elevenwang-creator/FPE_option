@@ -117,7 +117,11 @@ def fpe_compute_create(
     barrier: Float64,
     option_type: Int32,
     num_insert: Int32,
+    s_min: Float64,
+    s_max: Float64,
 ) -> PipelinePtr:
+    var actual_s_min = s_min if s_min >= 0.0 else 0.0
+    var actual_s_max = s_max if s_max > 0.0 else S0 * 3.0
     var heston = HestonParams(
         kappa=kappa,
         theta=theta,
@@ -127,8 +131,8 @@ def fpe_compute_create(
         T=T,
         S0=S0,
         V0=V0,
-        S_min=0.0,
-        S_max=S0 * 3.0,
+        S_min=actual_s_min,
+        S_max=actual_s_max,
         V_min=0.0,
         V_max=1.0,
     )
@@ -345,6 +349,8 @@ def fpe_price_oneshot(
     n_s: Int32,
     n_v: Int32,
     num_insert: Int32,
+    s_min: Float64,
+    s_max: Float64,
     result: UnsafePointer[FpeOneshotResult, MutExternalOrigin],
 ):
     if n_K < 0:
@@ -360,6 +366,8 @@ def fpe_price_oneshot(
         var strikes: List[Float64] = List[Float64](capacity=Int(n_K))
         for i in range(Int(n_K)):
             strikes.append(K_ptr[i])
+        var actual_s_min = s_min if s_min >= 0.0 else 0.0
+        var actual_s_max = s_max if s_max > 0.0 else S0 * 3.0
         var heston = HestonParams(
             kappa=kappa,
             theta=theta,
@@ -369,8 +377,8 @@ def fpe_price_oneshot(
             T=T,
             S0=S0,
             V0=V0,
-            S_min=0.0,
-            S_max=S0 * 3.0,
+            S_min=actual_s_min,
+            S_max=actual_s_max,
             V_min=0.0,
             V_max=1.0,
         )

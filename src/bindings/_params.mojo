@@ -62,6 +62,8 @@ def fpe_params_from_kwargs(kwargs: PythonObject) raises -> FpeParams:
     var n_s = _get_int(kwargs, "n_s", 38)
     var n_v = _get_int(kwargs, "n_v", 38)
     var barrier = _get_float(kwargs, "barrier", 0.0)
+    var s_min = _get_float(kwargs, "s_min", 0.0)
+    var s_max = _get_float(kwargs, "s_max", S0 * 3.0)
 
     if n_s < 4 or n_s > 256:
         raise Error("n_s must be in [4, 256], got " + String(n_s))
@@ -98,8 +100,8 @@ def fpe_params_from_kwargs(kwargs: PythonObject) raises -> FpeParams:
         T=T,
         S0=S0,
         V0=V0,
-        S_min=0.0,
-        S_max=S0 * 3.0,
+        S_min=s_min,
+        S_max=s_max,
         V_min=0.0,
         V_max=1.0,
     )

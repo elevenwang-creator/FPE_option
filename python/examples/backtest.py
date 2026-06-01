@@ -30,6 +30,7 @@ def main():
         barrier=0.0,
         option_type="european_call",
         n_s=38, n_v=38,
+        s_min=0.0, s_max=150.0,
     )
     for i, K in enumerate(strikes):
         print(f" K={K}: price={result.prices[i]:.6f}")
@@ -42,6 +43,7 @@ def main():
         barrier=80.0,
         option_type="up_and_out_call",
         n_s=38, n_v=38,
+        s_min=0.0, s_max=150.0,
     )
     for i, K in enumerate(strikes):
         print(f" K={K}: price={result.prices[i]:.6f}")
@@ -54,6 +56,7 @@ def main():
         barrier=50.0,
         option_type="down_and_out_call",
         n_s=38, n_v=38,
+        s_min=0.0, s_max=150.0,
     )
     for i, K in enumerate(strikes):
         print(f" K={K}: price={result.prices[i]:.6f}")

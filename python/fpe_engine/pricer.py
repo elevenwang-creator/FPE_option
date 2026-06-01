@@ -77,6 +77,8 @@ class FpeParams:
     option_type: str | int = "european_call"
     K: float | list | None = None
     barrier: float = 0.0
+    s_min: float | None = None
+    s_max: float | None = None
 
     def __post_init__(self):
         if isinstance(self.option_type, str):
@@ -109,7 +111,8 @@ class Compute:
     def __init__(self, **kwargs):
         if "option_type" not in kwargs:
             kwargs["option_type"] = "european_put"
-        self._pipe = _NativeCompute(**kwargs)
+        filtered = {k: v for k, v in kwargs.items() if v is not None}
+        self._pipe = _NativeCompute(**filtered)
         self._knots_cache: KnotsResult | None = None
         self._grid_points_cache: GridPointsResult | None = None
         self._basis_1d_cache: Basis1DResult | None = None

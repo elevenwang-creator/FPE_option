@@ -36,7 +36,8 @@ int main() {
 
     printf("[2] Create pipeline - Down-and-Out Barrier Call\n"); fflush(stdout);
     fpe::FpeCompute bar(
-        1.2, 0.05, 0.35, -0.4, 0.1, 0.6, 60.0, 0.1, 16, 16, 50.0, 2);
+        1.2, 0.05, 0.35, -0.4, 0.1, 0.6, 60.0, 0.1, 16, 16, 50.0, 2,
+        50, 0.0, 150.0);
     if (!bar.valid()) {
         printf("ERROR: failed to create barrier pipeline\n");
         return 1;

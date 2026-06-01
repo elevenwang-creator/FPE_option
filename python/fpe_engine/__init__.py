@@ -66,6 +66,7 @@ def price(
     K: list[float] | float = 100.0, barrier: float = 0.0,
     option_type: str | int = "european_call",
     n_s: int = 38, n_v: int = 38,
+    s_min: float | None = None, s_max: float | None = None,
 ) -> PriceResult:
     if not _NATIVE_AVAILABLE:
         raise RuntimeError("Mojo FPE engine not available")
@@ -88,6 +89,10 @@ def price(
         "K": K, "barrier": barrier, "option_type": option_type_int,
         "n_s": n_s, "n_v": n_v,
     }
+    if s_min is not None:
+        kwargs["s_min"] = s_min
+    if s_max is not None:
+        kwargs["s_max"] = s_max
     result = _native_price(kwargs)
     return PriceResult(
         prices=np.array(result["prices"], dtype=np.float64),
