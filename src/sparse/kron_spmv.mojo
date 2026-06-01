@@ -41,6 +41,8 @@ def kron_spmv(
             var b_end = B.indptr[j + 1]
             for bp in range(b_start, b_end):
                 var l = B.indices[bp]
+                if l < 0 or l >= q:
+                    continue
                 w_val += B.data[bp] * X[k * q + l]
             W[k * n + j] = w_val
 
@@ -56,6 +58,8 @@ def kron_spmv(
         for ap in range(a_start, a_end):
             var a_val = A.data[ap]
             var k = A.indices[ap]
+            if k < 0 or k >= p:
+                continue
             for j in range(n):
                 Y[i * n + j] += a_val * W[k * n + j]
 
@@ -100,6 +104,8 @@ def kron_T_spmv(
         for bp in range(bt_start, bt_end):
             var j = B_T.indices[bp]
             var b_val = B_T.data[bp]
+            if j < 0 or j >= n:
+                continue
             for i in range(m):
                 W[i * q + l] += b_val * V[i * n + j]
 
@@ -115,6 +121,8 @@ def kron_T_spmv(
         for atp in range(at_start, at_end):
             var at_val = A_T.data[atp]
             var i = A_T.indices[atp]
+            if i < 0 or i >= m:
+                continue
             for l in range(q):
                 Y[k * q + l] += at_val * W[i * q + l]
 
