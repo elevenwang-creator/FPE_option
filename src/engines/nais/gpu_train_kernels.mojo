@@ -19,6 +19,10 @@ def nais_fbsde_loss_kernel(
 ):
     """Computes the FBSDE loss entirely on the GPU.
 
+    NOTE: This is a stub implementation. The loss computation always
+    returns 0.5 as a placeholder. Replace with real FBSDE loss to
+    enable correct GPU training.
+
     Architecture:
     grid_dim.x defines the batch size / number of paths.
     block_dim.x dictates thread count collaborating inside the batch operation.
@@ -58,7 +62,7 @@ struct NAISGPUTrainExecutor:
     var n_iter: Int
     var n_params: Int
 
-    def execute_training_on_gpu(self) raises:
+    def execute_training_on_gpu(self) raises -> List[Float64]:
         comptime assert (
             has_accelerator()
         ), "GPU is critically required for NAIS training!"
@@ -74,7 +78,8 @@ struct NAISGPUTrainExecutor:
         var params_t = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](params_buf)
         var lr_scalar = rebind[Scalar[GPU_DTYPE]](self.learning_rate)
 
-        for _ in range(self.n_iter):
+        var host_losses = List[Float64]()
+        for iteration in range(self.n_iter):
             # NAIS Loss is computed across `batch_size` paths. Thus grid_dim=batch_size.
             ctx.enqueue_function[
                 nais_fbsde_loss_kernel, nais_fbsde_loss_kernel
@@ -98,4 +103,10 @@ struct NAISGPUTrainExecutor:
                 block_dim=bs,
             )
 
+            # Read back loss[0] from GPU to track training progress
+            ctx.synchronize()
+            var host_buf = ctx.enqueue_copy_to_host[GPU_DTYPE](loss_buf)
+            host_losses.append(Float64(host_buf[0] or 0.0))
+
         ctx.synchronize()
+        return host_losses^
