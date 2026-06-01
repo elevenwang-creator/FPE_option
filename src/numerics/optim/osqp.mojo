@@ -17,7 +17,7 @@ Performance optimizations:
   - SIMD vectorization via FixedSizeVector methods
 
 Correctness fixes:
-  - LU factorization failure returns zero vector instead of silent garbage
+  - LU factorization failure propagates exception to caller
   - Dual residual properly scaled by rho
 """
 
@@ -53,7 +53,7 @@ struct OSQPSolver(Copyable, Movable):
         self,
         M: CSRMatrix,
         b: List[Float64],
-    ) -> List[Float64]:
+    ) raises -> List[Float64]:
         var n = M.ncols
         if n == 0:
             return []
@@ -69,16 +69,7 @@ struct OSQPSolver(Copyable, Movable):
         # Factorize KKT (= MtM after shift)
         var KKT_csc = MtM.to_csc()
         var lu = SparseLU(n)
-        var factorize_ok = True
-        try:
-            lu.factorize(KKT_csc)
-        except:
-            factorize_ok = False
-
-        # C2 fix: if factorization failed, return zero vector
-        if not factorize_ok:
-            var fallback = List[Float64](length=n, fill=0.0)
-            return fallback^
+        lu.factorize(KKT_csc)
 
         # Linear term: q = M^T b (positive sign — used as +q in RHS)
         var q_list = Mt.spmv_new(b)
@@ -171,7 +162,7 @@ struct OSQPSolver(Copyable, Movable):
         self,
         A: List[List[Float64]],
         b: List[Float64],
-    ) -> List[Float64]:
+    ) raises -> List[Float64]:
         var nrows = len(A)
         if nrows == 0:
             return []
