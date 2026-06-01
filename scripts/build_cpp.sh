@@ -4,6 +4,9 @@ cd "$(dirname "$0")/.."
 
 PREFIX="${PIXI_ENV_PREFIX:-.pixi/envs/default}"
 
+# Get version from git tag
+VERSION=$(bash scripts/version.sh)
+
 OS="$(uname)"
 if [ "$OS" = "Darwin" ]; then
     SHLIB_NAME="libfpe_engine.dylib"
@@ -35,6 +38,10 @@ echo "=== [4/5] Installing Python package into site-packages ==="
 mkdir -p "${SITE_PACKAGES}/fpe_engine"
 cp python/fpe_engine/__init__.py "${SITE_PACKAGES}/fpe_engine/"
 cp python/fpe_engine/pricer.py "${SITE_PACKAGES}/fpe_engine/"
+cat > "${SITE_PACKAGES}/fpe_engine/_version.py" <<EOF
+__version__ = "${VERSION}"
+EOF
+echo "    Python version: ${VERSION}"
 
 echo "=== [5/5] Building C++ examples (cmake) ==="
 BUILD_DIR="cpp/examples/build"
