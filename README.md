@@ -203,11 +203,11 @@ The video below shows the PDF evolution from $t=0$ (delta peak at $S_0=60, V_0=0
 
 **European call PDF evolution:**
 
-<video src="https://github.com/elevenwang-creator/FPE_option/raw/main/python/examples/pdf_evolution.mp4" controls width="100%"></video>
+![European Call PDF Evolution](python/examples/pdf_evolution.gif)
 
 **Barrier call PDF evolution (down-and-out, barrier=50):**
 
-<video src="https://github.com/elevenwang-creator/FPE_option/raw/main/python/examples/pdf_evolution_barrier.mp4" controls width="100%"></video>
+![Barrier Call PDF Evolution](python/examples/pdf_evolution_barrier.gif)
 
 ---
 
