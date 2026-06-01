@@ -98,7 +98,7 @@ def _mat_to_heap(
 
 
 def _free_heap(ptr: F64Ptr, n: Int):
-    if n > 0 and not ptr.is_null():
+    if n > 0:
         ptr.free()
 
 
@@ -442,6 +442,7 @@ def fpe_compute_free_mat(ptr: UnsafePointer[FpeMatResult, MutExternalOrigin]):
         _free_heap(r.data, 0)
         return
     if n_rows > (1 << 62) // n_cols:
+        _free_heap(r.data, 0)
         return
     var total = n_rows * n_cols
     _free_heap(r.data, total)
