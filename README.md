@@ -524,7 +524,7 @@ All benchmarks run on **Apple M1 Pro (macOS, 2021, 16 GB RAM)**.
 
 The Python reference is the original FPE solver from which this engine was ported ([debug_python_ref.py](debug_python_ref.py)).
 The Mojo engine benchmark runs natively, compiled to machine code ([bench_vs_python.mojo](benchmarks/bench_vs_python.mojo)).
-The C++ binding benchmark runs via the C ABI through the C++ RAII wrapper ([cpp/examples/demo.cpp](cpp/examples/demo.cpp)). Since it calls the same Mojo backend directly, C++ performance matches the native Mojo time.
+The C++ binding benchmark runs via the C ABI through the C++ RAII wrapper ([cpp/examples/demo.cpp](cpp/examples/demo.cpp)). C++ numbers include pipeline creation and full lazy evaluation from the same process (the demo creates two additional 16x16 pipelines beforehand, reflecting real-world usage where multiple configs coexist). The C binding has negligible marshaling overhead.
 
 ### Native Engine Comparison
 
@@ -532,10 +532,10 @@ The C++ binding benchmark runs via the C ABI through the C++ RAII wrapper ([cpp/
 |-----------|-----:|:-------------|
 | Python Reference (solve + price) | 34.71 s | 1.0x |
 | Mojo Engine via Python binding (solve + price only) | 4.10 s | **8.5x faster** |
-| Mojo Engine via C++ binding (solve + price only) | 3.09 s | **11.2x faster** |
+| Mojo Engine via C++ binding (solve + price only) | 3.72 s | **9.3x faster** |
 | Mojo Engine native (solve + price only) | 3.09 s | **11.2x faster** |
 | Mojo Engine via Python binding (one-shot + Greeks, 8 strikes) | 13.85 s | 2.5x faster |
-| Mojo Engine via C++ binding (one-shot + Greeks, 8 strikes) | 3.09 s | **11.2x faster** |
+| Mojo Engine via C++ binding (one-shot + Greeks, 8 strikes) | 14.70 s | 2.4x faster |
 
 ### Binding Overhead
 
@@ -544,7 +544,7 @@ The C++ binding benchmark runs via the C ABI through the C++ RAII wrapper ([cpp/
 | Python | `Compute.payoff_price()` through Mojo native module | ~33% (1.0 s data marshaling) |
 | C / C++ | C ABI `fpe_compute_create/price` through direct .dylib call | negligible (< 1%) |
 
-The Python binding adds ~1 second of marshaling overhead per call. The C ABI (via C or C++ RAII wrapper) calls the same Mojo backend directly with no marshaling -- identical to the native Mojo benchmark time.
+The Python binding adds ~1 second of marshaling overhead per call. The C ABI (via C or C++ RAII wrapper) calls the same Mojo backend directly with no marshaling -- performance is within ~20% of native Mojo; the C++ benchmark runs alongside other pipeline instances in the same process, adding memory pressure relative to the standalone native benchmark.
 
 ### Greeks
 

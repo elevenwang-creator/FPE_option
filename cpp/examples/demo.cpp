@@ -43,6 +43,30 @@ int main() {
         return 1;
     }
 
+    // 38x38 pipeline for benchmark comparison (matching Mojo native bench config)
+    printf("\n[12] Create pipeline - 38x38 Barrier Benchmark\n"); fflush(stdout);
+    fpe::FpeCompute bench(
+        1.2, 0.05, 0.35, -0.4, 0.1, 0.6, 60.0, 0.1, 38, 38, 50.0, 2,
+        50, 0.0, 150.0);
+    if (!bench.valid()) {
+        printf("ERROR: failed to create bench pipeline\n");
+        return 1;
+    }
+
+    std::vector<double> prices_bench;
+    BENCH("bench_price", prices_bench = bench.price(K));
+    printf("[38x38 Barrier Benchmark]:\n");
+    for (size_t i = 0; i < K.size(); i++)
+        printf("  K=%.1f: price=%.6f\n", K[i], prices_bench[i]);
+
+    fpe::GreeksResult g_bench;
+    BENCH("bench_greeks", g_bench = bench.greeks(K));
+    printf("[38x38 Barrier Greeks]:\n");
+    for (size_t i = 0; i < K.size(); i++)
+        printf("  K=%.1f: delta=%.6f gamma=%.6f vega=%.6f\n",
+            K[i], g_bench.delta[i], g_bench.gamma[i], g_bench.vega[i]);
+    fflush(stdout);
+
     printf("\n[3] Knots\n"); fflush(stdout);
     fpe::KnotsResult k_eu;
     BENCH("eu_knots", k_eu = eu.knots());
