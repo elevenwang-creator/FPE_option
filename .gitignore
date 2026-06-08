@@ -38,6 +38,6 @@ cpp/libfpe_engine.dylib
 .pixi/
 .pytest_cache/
 .omo/
-#docs/python_reference/
+*docs/python_reference/
 single_price
 test_origin13

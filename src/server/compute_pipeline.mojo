@@ -6,7 +6,7 @@ from engines.fpe.pdf import pdf_from_cached
 from engines.fpe.solver import FPESolver
 from server.option_types import FpeParams
 from server.payoffs import BarrierPayoff
-from server.pricer import PDFGrid, _price_at
+from server.pricer import PDFGrid, _price_at, Pricer
 from server.greeks import Greeks
 from numerics.utils import vec_scale
 from sparse.csr import CSRMatrix
@@ -114,6 +114,19 @@ struct ComputePipeline(Movable):
         return result^
 
     def price_at(mut self, strikes: List[Float64]) raises -> List[Float64]:
+        var ot = self.fp.option_type
+        if (ot == 0) or (ot == 1) or (ot == 4) or (ot == 5):
+            var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=self._num_insert)
+            var temp_fp = FpeParams(
+                heston=self.fp.heston.copy(),
+                n_s=self.fp.n_s,
+                n_v=self.fp.n_v,
+                barrier=self.fp.barrier,
+                option_type=self.fp.option_type,
+                strikes=strikes.copy(),
+            )
+            return pricer.price(temp_fp)
+
         self._ensure_solve()
         if self.pdf_grid == None:
             self.pdf_grid = pdf_from_cached(

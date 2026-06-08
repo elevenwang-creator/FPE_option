@@ -84,6 +84,41 @@ struct Pricer(Copyable, Movable):
             var err = List[Float64](length=len(fpe_params.strikes), fill=0.0)
             return err^
 
+        # In-out parity: in-option = vanilla - out-option
+        var ot = fpe_params.option_type
+        if (ot == 0) or (ot == 1) or (ot == 4) or (ot == 5):
+            var is_call = ot % 2 == 0
+            var is_down = ot <= 1
+
+            var vanilla_fp = FpeParams(
+                heston=fpe_params.heston.copy(),
+                n_s=fpe_params.n_s,
+                n_v=fpe_params.n_v,
+                barrier=0.0,
+                option_type=8 if is_call else 9,
+                strikes=fpe_params.strikes.copy(),
+            )
+            var vanilla_prices = self.price(vanilla_fp)
+
+            var out_type = 6
+            if is_down:
+                out_type = 2
+            if not is_call:
+                out_type += 1
+            var out_fp = FpeParams(
+                heston=fpe_params.heston.copy(),
+                n_s=fpe_params.n_s,
+                n_v=fpe_params.n_v,
+                barrier=fpe_params.barrier,
+                option_type=out_type,
+                strikes=fpe_params.strikes.copy(),
+            )
+            var out_prices = self.price(out_fp)
+
+            for i in range(len(vanilla_prices)):
+                vanilla_prices[i] -= out_prices[i]
+            return vanilla_prices^
+
         var revised = fpe_params.revised_heston()
         var domain = FPEDomain[3, 3](
             revised,
