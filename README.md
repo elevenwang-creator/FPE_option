@@ -223,11 +223,11 @@ The GIFs below show the PDF evolution from $t=0$ (delta peak at $S_0=60, V_0=0.1
 
 **European call PDF evolution:**
 
-![PDF evolution](python/examples/pdf_evolution.apng)
+![PDF evolution](python/examples/pdf_evolution.gif)
 
 **Barrier call PDF evolution (down-and-out, barrier=50):**
 
-![Barrier PDF evolution](python/examples/pdf_evolution_barrier.apng)
+![Barrier PDF evolution](python/examples/pdf_evolution_barrier.gif)
 
 ---
 
