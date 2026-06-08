@@ -1,21 +1,21 @@
 """Regenerate PDF evolution GIFs with slower playback and a hold at the final frame."""
-import subprocess, os, tempfile
+import subprocess, os
 from PIL import Image
 
-def regenerate_gif(mp4_path, gif_path, fps=8, hold_sec=8.0):
+def regenerate_gif(mp4_path, gif_path, fps=8, hold_sec=8.0, scale=1000):
     tmp_gif = gif_path + ".tmp.gif"
     palette = gif_path + ".palette.png"
 
     subprocess.run([
         "ffmpeg", "-y", "-i", mp4_path, "-vf",
-        f"fps={fps},scale=800:-1:flags=lanczos,palettegen=stats_mode=diff",
+        f"fps={fps},scale={scale}:-1:flags=lanczos,palettegen=stats_mode=full:max_colors=256",
         palette,
     ], check=True, capture_output=True)
 
     subprocess.run([
         "ffmpeg", "-y", "-i", mp4_path, "-i", palette,
         "-filter_complex",
-        f"[0:v]fps={fps},scale=800:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer",
+        f"[0:v]fps={fps},scale={scale}:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=floyd_steinberg",
         tmp_gif,
     ], check=True, capture_output=True)
 
@@ -47,7 +47,7 @@ def regenerate_gif(mp4_path, gif_path, fps=8, hold_sec=8.0):
 
     os.remove(tmp_gif)
     os.remove(palette)
-    print(f"  -> {gif_path}  ({fps} fps, {hold_sec}s hold, {len(frames)} frames)")
+    print(f"  -> {gif_path}  ({fps} fps, {hold_sec}s hold, {len(frames)} frames, {scale}px)")
 
 if __name__ == "__main__":
     base = os.path.join(os.path.dirname(__file__), "..", "python", "examples")
