@@ -255,10 +255,14 @@ pixi run test
 ### Conda package
 
 ```bash
-pixi add fpe-engine
+pixi add fpe-engine --channel https://repo.prefix.dev/fpe-engine
 ```
 
-Requires the `modular-community` channel: add `https://repo.prefix.dev/modular-community` to your pixi channels or conda configuration.
+Or add the channel to your `pixi.toml`:
+
+```toml
+channels = ["https://repo.prefix.dev/fpe-engine", "conda-forge"]
+```
 
 ### From source
 

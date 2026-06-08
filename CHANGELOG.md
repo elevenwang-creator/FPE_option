@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.1 (2026-06-08)
+
+### Added
+- CI: publish workflow triggered by git tags (`v*`) to prefix.dev `fpe-engine` channel
+- CI: `max-parallel: 1` to prevent Mojo OOM on Linux runners
+
+### Fixed
+- CI: `build_cpp.sh` creates output directory before `mojo build`
+- CI: removed manual `pixi install` (handled by `setup-pixi` v0.8.5)
+- Recipe: homepage URL corrected to `elevenwang-creator/FPE_option`
+- Git history: author email unified to GitHub noreply address
+- Test `kron_spmv`: removed nonexistent `kron_T_spmv_dual` import
+- Test `new_operators`: removed unused `identity_csr` import
+- Test `ddz_z3`: added `.copy()` to avoid mutation side effects
+- Test `sparse_lu_symnum`: rewritten to match current `factorize()` API
+
+### Changed
+- CI: upcoming-feature tests (calibrator, bindings, e2e, GPU, autograd, etc.) excluded from CI — run locally only
+- README: pixi install channel updated to `https://repo.prefix.dev/fpe-engine`
+
 ## 0.2.0 (2026-06-08)
 
 ### Added
