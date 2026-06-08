@@ -1,55 +1,63 @@
 # FPE Option Pricing Engine
 
-> High-performance exotic option pricing engine using Fokker-Planck PDE + NAIS-Net neural solver, built entirely in Mojo with MAX AI Kernels.
+> High-performance exotic option pricing engine using Fokker-Planck PDE + B-spline Galerkin discretization, built in Mojo with MAX AI Kernels.
 
-[![Mojo](https://img.shields.io/badge/Mojo-v0.26.3-red)](https://docs.modular.com/mojo/)
-[![MAX SDK](https://img.shields.io/badge/MAX-26.3.0-blue)](https://docs.modular.com/max/)
-[![License](https://img.shields.io/badge/License-Proprietary-blue)](./LICENSE)
+[![CI](https://github.com/elevenwang-creator/FPE_option/actions/workflows/ci.yml/badge.svg)](https://github.com/elevenwang-creator/FPE_option/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Mojo](https://img.shields.io/badge/Mojo-%E2%89%A51.0.0b2-orange)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20ARM64%20%7C%20Linux%20x86--64-green)]()
 
 ---
 
 ## Project Overview
 
-This is a production-grade option pricing engine (~7,088 lines of Mojo) that reconstructs three Python codebases into high-performance Mojo:
+A production-grade option pricing engine (~10,713 lines of Mojo, 85 source files) for the Heston stochastic volatility model:
 
 | Component | Source | Lines | Purpose |
 |-----------|--------|-------|---------|
-| **FPE Solver** | `FPE_Solver_Final_Version.py` | ~1,153 | Heston model pricing via B-spline Galerkin |
-| **NAIS-Net** | `NAIS_rBM.py` | ~448 | Neural FBSDE solver for rough Bergomi |
-| **Pricing Server** | `BarrierOptionPricing.ipynb` | — | Sub-ms single + GPU batch pricing |
+| **FPE Solver** | `src/engines/fpe/` | ~1,607 | Heston model pricing via B-spline Galerkin + RadauIIA |
+| **NAIS-Net** | `src/engines/nais/` | ~1,371 | Neural FBSDE solver for rough Bergomi |
+| **Pricing Server** | `src/server/` | ~766 | Sub-ms single + batch pricing frontend |
+| **Sparse Math** | `src/sparse/` | ~1,449 | Custom CSR/CSC with SIMD SpMV, Kronecker, SpGEMM |
+| **Domain Numerics** | `src/numerics/` | ~3,953 | B-splines, ODE, optimization, NN runtime, linear algebra |
 
 ### Key Features
 
-- **Unified Compute Model**: Write once, deploy to CPU (batch=1) or GPU (batch=N)
-- **Three Runtime Modes**: CPU single pricing (<1ms), GPU batch pricing, GPU batch calibration
-- **GPU Portability**: NVIDIA (CUDA), AMD (HIP), Apple Silicon (Metal) via Mojo's GPU abstraction
-- **Full Mojo-Native**: No Python/scipy/TensorFlow dependencies in production path
-- **Dual Bindings**: Python (research/backtest) + C++ (live trading)
+- **B-spline Galerkin FPE solver**: Tensor-product cubic B-splines on (S,V) domain
+- **RadauIIA implicit ODE integrator**: Order-5 stiff solver for semi-discrete FPE
+- **Dual bindings**: Python (research/backtest) + C/C++ (live trading)
+- **NAIS-Net**: Neural FBSDE solver for rough Bergomi model (upcoming)
+- **GPU acceleration**: Metal/CUDA/HIP via `_gpu.mojo` variants + standalone GPU executor
+- **Full Mojo-native**: Zero Python/scipy in production path; SIMD + comptime dispatch
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              FPE OPTION PRICING ENGINE                                │
-│                                    ~7,088 lines of Mojo                              │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│  LAYER 5: BINDINGS                    Python Extension · C ABI                       │
-│  ─────────────────────────────────────────────────────────────────────────────────  │
-│  LAYER 4: PRICING SERVER              PricingEngine · Pricer · PDFCache · Payoffs   │
-│  ─────────────────────────────────────────────────────────────────────────────────  │
-│  LAYER 3: ENGINES                     FPE Engine · NAIS Engine · Calibrator         │
-│            ├─ FPE/gpu/                GPU kernels for Heston batch pricing            │
-│            └─ nais/gpu_*              GPU kernels for NAIS training/inference         │
-│  ─────────────────────────────────────────────────────────────────────────────────  │
-│  LAYER 2: DOMAIN NUMERICS             B-Spline · ODE · Optimizer · NN Runtime       │
-│  ─────────────────────────────────────────────────────────────────────────────────  │
-│  LAYER 1: SPARSE MATH (Custom)         CSRMatrix · COOMatrix · DiagMatrix · ops      │
-│  ─────────────────────────────────────────────────────────────────────────────────  │
-│  LAYER 0: MAX AI KERNELS + STDLIB     matmul · gemv · rfft/irfft · Philox PRNG     │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                              FPE OPTION PRICING ENGINE                                 │
+│                                    ~10,713 lines of Mojo                               │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│  LAYER 5: BINDINGS (6 files, 939 lines)   Python Extension · C ABI                    │
+│  ────────────────────────────────────────────────────────────────────────────────────  │
+│  LAYER 4: PRICING SERVER (8 files, 766 lines)  ComputePipeline · Pricer · Greeks ·     │
+│                                                  Payoffs · Interpolator                 │
+│  ────────────────────────────────────────────────────────────────────────────────────  │
+│  LAYER 3: ENGINES (29 files, 3,431 lines)                                             │
+│            ├─ engines/fpe/        B-spline FPE: Galerkin + RadauIIA solver              │
+│            ├─ engines/fpe/gpu/    GPU chain executor                                     │
+│            ├─ engines/nais/       NAIS-Net neural FBSDE                                 │
+│            └─ engines/calibrator/ Heston LM calibration                                │
+│  ────────────────────────────────────────────────────────────────────────────────────  │
+│  LAYER 2: DOMAIN NUMERICS (25 files, 3,953 lines)                                      │
+│            B-Spline basis · RadauIIA/RK45 ODE · OSQP/LM optim · Autograd · Linalg      │
+│  ────────────────────────────────────────────────────────────────────────────────────  │
+│  LAYER 1: SPARSE MATH (13 files, 1,449 lines)                                          │
+│            CSRMatrix · CSCMatrix · DiagMatrix · kron · spgemm · spmm · scratch          │
+│  ────────────────────────────────────────────────────────────────────────────────────  │
+│  LAYER 0: MAX AI KERNELS + STDLIB    matmul · gemv · rfft/irfft · Philox PRNG          │
+└──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -58,545 +66,543 @@ This is a production-grade option pricing engine (~7,088 lines of Mojo) that rec
 
 ```
 FPE_option/
-├── pixi.toml                    # Mojo v0.26.3, MAX SDK 26.3.0
-├── mojoproject.toml
+├── pixi.toml                    # Mojo >=1.0.0b2, MAX >=26.3
+├── recipe.yaml                  # Conda build recipe
+├── pyproject.toml               # Python packaging metadata
 │
-├── src/                         # ~62 .mojo files, ~7,088 lines
+├── src/                         # 85 .mojo files, ~10,713 lines
 │   │
-│   ├── bindings/                # Layer 5: Language bindings (3 files)
+│   ├── bindings/                # Layer 5 (6 files, 939 lines)
 │   │   ├── __init__.mojo
-│   │   ├── c_abi.mojo          # C/C++ FFI exports
-│   │   └── python_module.mojo  # PyInit_fpe_engine
+│   │   ├── _convert.mojo        # Mojo-Python type conversion
+│   │   ├── _fpe_native.mojo     # Mojo Python extension (PyInit_fpe_engine)
+│   │   ├── _params.mojo         # Parameter struct marshaling
+│   │   ├── _py_pipeline.mojo    # Compute class exposed to Python
+│   │   └── c_abi.mojo          # C/C++ FFI exports (fpe_init, fpe_price, etc.)
 │   │
-│   ├── server/                  # Layer 4: Pricing server (9 files, ~1,160 lines)
-│   │   ├── __init__.mojo
-│   │   ├── pricing_engine.mojo  # Top-level orchestrator (42 lines)
-│   │   ├── pricer.mojo          # Unified pricer CPU/GPU/parallel (447 lines)
-│   │   ├── pdf_cache.mojo       # PDF grid cache with disk I/O (161 lines)
-│   │   ├── interpolator.mojo   # Bicubic/bilinear interpolation (187 lines)
-│   │   ├── greeks.mojo          # Greeks (Δ/Γ/ν/θ) finite diff (135 lines)
-│   │   ├── payoffs.mojo         # Barrier/European payoff traits (83 lines)
-│   │   ├── vol_surface.mojo     # Implied vol surface (20 lines)
-│   │   └── gpu_pricing_kernels.mojo # GPU batch pricing kernel (77 lines)
+│   ├── server/                  # Layer 4 (8 files, 766 lines)
+│   │   ├── __init__.mojo        # Exports: FpeParams, PricingEngine, Pricer, etc.
+│   │   ├── compute_pipeline.mojo # Stepwise pipeline (knots → grid → solve → pdf → price)
+│   │   ├── greeks.mojo          # Greeks (Δ/Γ/ν) via finite differences
+│   │   ├── interpolator.mojo    # Bicubic/bilinear interpolation
+│   │   ├── option_types.mojo    # FpeParams, PricingResult structs
+│   │   ├── payoffs.mojo         # BarrierPayoff trait with integrate()
+│   │   ├── pricer.mojo          # Pricer + PDFGrid + _price_at quadrature
+│   │   └── pricing_engine.mojo  # Top-level orchestrator
 │   │
-│   ├── engines/                 # Layer 3: Core engines (18 files, ~2,400 lines)
+│   ├── engines/                 # Layer 3 (29 files, 3,431 lines)
 │   │   │
-│   │   ├── fpe/                # Fokker-Planck Equation engine
-│   │   │   ├── __init__.mojo
-│   │   │   ├── solver.mojo     # Unified solver CPU/GPU dispatch (236 lines)
-│   │   │   ├── galerkin.mojo   # Mass/stiffness matrix assembly (158 lines)
-│   │   │   ├── domain.mojo     # Knots, grid, basis construction
-│   │   │   ├── heston_params.mojo # Heston parameters struct
-│   │   │   ├── initial_cond.mojo  # Initial condition (bivariate Gaussian)
-│   │   │   └── pdf.mojo        # PDF reconstruction from coefficients
+│   │   ├── fpe/                 # FPE engine (11 files, 1,607 lines)
+│   │   │   ├── __init__.mojo    # Exports: HestonParams, FPEDomain, FPESolver, etc.
+│   │   │   ├── solver.mojo      # FPESolver — RadauIIA time integration
+│   │   │   ├── galerkin.mojo    # Mass/stiffness matrix assembly (CPU)
+│   │   │   ├── galerkin_gpu.mojo# GPU Galerkin assembly
+│   │   │   ├── domain.mojo      # FPEDomain: knots, grid, basis, quadrature weights
+│   │   │   ├── domain_gpu.mojo  # GPU domain construction
+│   │   │   ├── heston_params.mojo # HestonParams struct + Feller validation
+│   │   │   ├── initial_cond.mojo  # Initial condition (CPU)
+│   │   │   ├── initial_cond_gpu.mojo # GPU initial condition
+│   │   │   ├── pdf.mojo         # PDF reconstruction from coefficients (CPU)
+│   │   │   └── pdf_gpu.mojo     # GPU PDF reconstruction
 │   │   │
-│   │   ├── fpe/gpu/            # GPU FPE kernels (6 files)
+│   │   ├── fpe/gpu/             # GPU executor (2 files, 469 lines)
 │   │   │   ├── __init__.mojo
-│   │   │   ├── executor.mojo   # Full GPU chain orchestrator (172 lines)
-│   │   │   ├── domain.mojo     # GPU knots/grid/basis/boundary
-│   │   │   ├── matrix.mojo     # GPU sparse matrix/delta/initial
-│   │   │   ├── solver.mojo     # GPU LU/RADAU5 kernels
-│   │   │   ├── integration.mojo # GPU integration kernel
-│   │   │   └── calibration.mojo # GPU loss/LM optimization
+│   │   │   └── executor.mojo    # GPUFullChainExecutor — full GPU batch chain
 │   │   │
-│   │   ├── nais/               # NAIS-Net (Neural FBSDE)
+│   │   ├── nais/                # NAIS-Net neural FBSDE (11 files, 1,371 lines)
 │   │   │   ├── __init__.mojo
-│   │   │   ├── nais_net.mojo   # 6-layer residual network (387 lines)
-│   │   │   ├── volterra.mojo   # Fractional BM via FFT (139 lines)
-│   │   │   ├── variance.mojo   # Rough Bergomi variance process
-│   │   │   ├── fbsde.mojo      # Forward-backward SDE loss
-│   │   │   ├── trainer.mojo    # CPU training loop
-│   │   │   ├── inferencer.mojo # Online inference
+│   │   │   ├── nais_net.mojo    # 6-layer residual network
+│   │   │   ├── volterra.mojo    # Fractional BM via FFT
+│   │   │   ├── variance.mojo    # Rough Bergomi variance process
+│   │   │   ├── fbsde.mojo       # Forward-backward SDE loss
+│   │   │   ├── trainer.mojo     # CPU training loop
+│   │   │   ├── inferencer.mojo  # Online inference + implied vol surface
+│   │   │   ├── utils.mojo       # NAIS shared utilities
 │   │   │   ├── gpu_trainer.mojo # GPU training executor
 │   │   │   ├── gpu_forward_kernels.mojo # GPU forward pass
-│   │   │   └── gpu_train_kernels.mojo  # GPU training kernels
+│   │   │   └── gpu_train_kernels.mojo   # GPU training kernels
 │   │   │
-│   │   └── calibrator/         # Heston calibration
+│   │   └── calibrator/          # Heston calibration (4 files, 452 lines)
 │   │       ├── __init__.mojo
-│   │       ├── calibrator.mojo # Levenberg-Marquardt optimizer
-│   │       └── objective.mojo  # Calibration objective function
+│   │       ├── calibrator.mojo  # Levenberg-Marquardt optimizer
+│   │       ├── objective.mojo   # Objective function (CPU)
+│   │       └── objective_gpu.mojo # GPU objective function
 │   │
-│   ├── numerics/                # Layer 2: Domain numerics (18 files, ~1,700 lines)
+│   ├── numerics/                # Layer 2 (25 files, 3,953 lines)
 │   │   │
-│   │   ├── __init__.mojo
-│   │   ├── utils.mojo          # linspace, zeros, copy utilities (136 lines)
-│   │   ├── linalg.mojo         # LU solve with partial pivoting
-│   │   │
-│   │   ├── bspline/            # B-spline module
+│   │   ├── bspline/             # B-spline module (6 files, 728 lines)
 │   │   │   ├── __init__.mojo
-│   │   │   ├── basis.mojo      # De Boor-Cox + SIMD evaluation (188 lines)
-│   │   │   ├── knots.mojo     # Knot vector generation
+│   │   │   ├── basis.mojo       # De Boor-Cox + SIMD evaluation
+│   │   │   ├── knots.mojo       # Uniform/Chebyshev knot generation
+│   │   │   ├── knots_gpu.mojo   # GPU knot generation
 │   │   │   ├── recombination.mojo # Boundary condition enforcement
 │   │   │   └── tensor_product.mojo # 2D tensor product basis
 │   │   │
-│   │   ├── ode/                # ODE solvers
+│   │   ├── ode/                 # ODE integrators (4 files, 1,623 lines)
 │   │   │   ├── __init__.mojo
-│   │   │   ├── radau.mojo      # RadauIIA implicit solver (377 lines)
-│   │   │   ├── rk45.mojo      # Runge-Kutta 45 explicit
-│   │   │   └── types.mojo      # ODESystem trait definitions
+│   │   │   ├── radau.mojo       # RadauIIA (order 5) + BackwardEuler
+│   │   │   ├── radau_gpu.mojo   # GPU RadauIIA
+│   │   │   └── types.mojo       # ODESystem trait
 │   │   │
-│   │   ├── optim/              # Optimization
+│   │   ├── optim/               # Optimization (3 files, 298 lines)
 │   │   │   ├── __init__.mojo
-│   │   │   ├── osqp.mojo      # ADMM QP solver (81 lines)
-│   │   │   └── lm.mojo        # Levenberg-Marquardt (100 lines)
+│   │   │   ├── osqp.mojo        # ADMM QP solver
+│   │   │   └── lm.mojo          # Levenberg-Marquardt
 │   │   │
-│   │   └── nn/                 # Neural network components
+│   │   ├── nn/                  # Neural network runtime (4 files, 316 lines)
+│   │   │   ├── __init__.mojo
+│   │   │   ├── stable_linear.mojo # Spectral-norm constrained layer
+│   │   │   ├── autograd.mojo    # Reverse-mode autodiff tape
+│   │   │   └── adam.mojo        # Adam optimizer
+│   │   │
+│   │   └── utils/               # Utilities (7 files, 979 lines)
 │   │       ├── __init__.mojo
-│   │       ├── stable_linear.mojo # Spectral-norm constrained layer
-│   │       ├── autograd.mojo   # Reverse-mode autodiff tape (149 lines)
-│   │       └── adam.mojo       # Adam optimizer
+│   │       ├── helpers.mojo     # linspace, zeros, copy, swap, clamp
+│   │       ├── simd_utils.mojo  # SIMD load/store/convert helpers
+│   │       ├── fixed_size_vector.mojo # Fixed-size vector arithmetic
+│   │       ├── linalg.mojo      # Dense LU solve with partial pivoting
+│   │       ├── linalg_gpu.mojo  # GPU linear algebra kernels
+│   │       └── sparse_lu.mojo   # Sparse LU decomposition
 │   │
-│   ├── sparse/                  # Layer 1: Custom sparse math (6 files, ~608 lines)
+│   ├── sparse/                  # Layer 1 (13 files, 1,449 lines)
 │   │   ├── __init__.mojo
-│   │   ├── csr.mojo           # CSRMatrix with SIMD spmv (166 lines)
-│   │   ├── coo.mojo           # COOMatrix with merge-sort to CSR (137 lines)
-│   │   ├── diag.mojo          # Diagonal matrix (63 lines)
-│   │   ├── ops.mojo           # kron, spgemm, spmm, add, scale (171 lines)
-│   │   └── gpu_kernels.mojo    # GPU SpMV kernels (66 lines)
+│   │   ├── csr.mojo            # CSRMatrix with SIMD SpMV
+│   │   ├── csc.mojo            # CSCMatrix
+│   │   ├── diag.mojo           # Diagonal matrix
+│   │   ├── add.mojo            # Sparse matrix add
+│   │   ├── scale.mojo          # Sparse matrix scaling
+│   │   ├── diag_scale.mojo     # Diagonal scaling
+│   │   ├── diag_mul.mojo       # Diagonal multiplication
+│   │   ├── kron.mojo           # Kronecker product
+│   │   ├── kron_spmv.mojo      # Kronecker-powered SpMV
+│   │   ├── spgemm.mojo         # Sparse × sparse → sparse
+│   │   ├── scratch.mojo        # Scratch allocation workspace
+│   │   └── gpu_kernels.mojo    # GPU SpMV kernels
 │   │
-│   └── gpu_utils/              # GPU utilities (3 files)
+│   └── gpu_utils/              # GPU utilities (3 files, 116 lines)
 │       ├── __init__.mojo
-│       ├── detect.mojo         # Multi-backend GPU detection (59 lines)
-│       ├── dtype.mojo          # METAL_*/CUDA_* type constants
-│       └── host_utils.mojo     # DeviceContext creation helpers
+│       ├── detect.mojo          # Multi-backend GPU detection
+│       └── dtype.mojo           # METAL/CUDA/HIP type constants
 │
-├── tests/
-├── benchmarks/
-├── examples/
-├── python/                      # Python package
-└── cpp/                         # C++ examples
+├── tests/                       # 57 test files (56 Mojo + 1 Python)
+├── benchmarks/                  # Performance benchmarks
+├── python/fpe_engine/           # Python package (conda)
+│   ├── __init__.py              # fpe.price() + fpe.Compute() API
+│   ├── pricer.py                # Python-side wrappers
+│   ├── _version.py              # Version from git tag
+│   └── _fpe_native.so           # Compiled Mojo extension
+├── python/examples/             # Jupyter notebooks + scripts
+├── cpp/                         # C++ header + demo
+│   ├── include/fpe_engine.h     # C ABI header
+│   ├── include/fpe_compute.hpp  # C++ convenience wrapper
+│   └── examples/demo.cpp        # Live trading demo
+└── docs/                        # Documentation
 ```
 
 ---
 
 ## Complete File Inventory
 
-### Layer 5: Bindings (3 files)
+### Layer 5: Bindings (6 files, 939 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `bindings/__init__.mojo` | — | Package marker |
-| `bindings/c_abi.mojo` | — | C/C++ FFI exports: `fpe_init`, `fpe_price_single`, `fpe_price_batch`, `fpe_calibrate` |
-| `bindings/python_module.mojo` | — | Python extension: `PyInit_fpe_engine` with `price_single`, `price_batch`, `solve_fpe` |
+| `bindings/__init__.mojo` | 1 | Package marker |
+| `bindings/_convert.mojo` | 143 | Mojo ↔ Python type conversion (lists, dicts, errors) |
+| `bindings/_fpe_native.mojo` | 64 | Python extension entry: `PyInit_fpe_engine` |
+| `bindings/_params.mojo` | 119 | Parameter marshaling between Python dict and FpeParams |
+| `bindings/_py_pipeline.mojo` | 165 | `Compute` class exposed to Python: knots, grid_points, pdf, payoff_price, greeks |
+| `bindings/c_abi.mojo` | 438 | C/C++ FFI: `fpe_init`, `fpe_price`, `fpe_free`, version query; `abi("C")` exports |
 
-### Layer 4: Pricing Server (9 files, ~1,160 lines)
-
-| File | Lines | Description |
-|------|-------|-------------|
-| `server/__init__.mojo` | 8 | Exports: PDFCache, Interpolator, Payoffs, Greeks, Pricer, PricingEngine |
-| `server/pricing_engine.mojo` | 42 | **Top-level orchestrator**: PDF cache lookup → pricer dispatch |
-| `server/pricer.mojo` | 447 | **Unified pricer** with CPU/GPU/parallel dispatch, pre-computed quadrature weights |
-| `server/pdf_cache.mojo` | 161 | PDF grid cache with JSON serialization/deserialization |
-| `server/interpolator.mojo` | 187 | Bicubic (Catmull-Rom) and bilinear interpolation on 2D PDF grid |
-| `server/greeks.mojo` | 135 | Greeks (Δ/Γ/ν/θ) via central finite differences on PDF grid |
-| `server/payoffs.mojo` | 83 | Payoff traits: `BarrierUpAndOut`, `BarrierDownAndIn`, `EuropeanCall`, `EuropeanPut` |
-| `server/vol_surface.mojo` | 20 | Implied volatility surface generation from NAIS-Net inference |
-| `server/gpu_pricing_kernels.mojo` | 77 | GPU kernel for batch payoff integration (block-per-option) |
-
-### Layer 3: Engines (18 files, ~2,400 lines)
-
-#### FPE Engine (12 files)
+### Layer 4: Pricing Server (8 files, 766 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `engines/fpe/__init__.mojo` | — | Exports: FPEDomain, GalerkinAssembler, InitialCondition, FPESolver, PDFComputer, HestonParams |
-| `engines/fpe/solver.mojo` | 236 | **Unified FPE solver** with comptime CPU/GPU dispatch (RadauIIA + sparse SpMV) |
-| `engines/fpe/galerkin.mojo` | 158 | **Galerkin assembly**: mass matrix M and stiffness matrix K for Heston FPE |
-| `engines/fpe/domain.mojo` | — | FPE computational domain: knot generation, grid points, basis construction |
-| `engines/fpe/heston_params.mojo` | — | Heston model parameters struct with validation and Feller condition check |
-| `engines/fpe/initial_cond.mojo` | — | Initial condition: bivariate Gaussian with OSQP NNLS solve |
-| `engines/fpe/pdf.mojo` | — | PDF reconstruction from Galerkin coefficients |
+| `server/__init__.mojo` | 5 | Exports: FpeParams, PricingResult, PricingEngine, Pricer, PDFGrid, Greeks |
+| `server/compute_pipeline.mojo` | 171 | **Stepwise pipeline**: `ComputePipeline` with `knots()`, `grid_points()`, `basis_1d()`, `basis_2d()`, `initial_condition()`, `solve()`, `pdf()`, `price_at()`, `greeks()` |
+| `server/greeks.mojo` | 53 | Greeks (Δ/Γ/ν) via central finite differences |
+| `server/interpolator.mojo` | 198 | Bicubic (Catmull-Rom) and bilinear interpolation on 2D grid |
+| `server/option_types.mojo` | 79 | `FpeParams` (Heston + grid + barrier + strikes) and `PricingResult` structs |
+| `server/payoffs.mojo` | 53 | `BarrierPayoff` trait: integrate() for 10 option types |
+| `server/pricer.mojo` | 155 | `Pricer` with full pipeline (domain → Galerkin → solve → pdf → price), `PDFGrid` |
+| `server/pricing_engine.mojo` | 52 | `PricingEngine` orchestrator: pricer dispatch + Greeks |
 
-#### FPE GPU Kernels (6 files)
+### Layer 3: Engines (29 files, 3,431 lines)
 
-| File | Lines | Description |
-|------|-------|-------------|
-| `engines/fpe/gpu/__init__.mojo` | — | Package marker |
-| `engines/fpe/gpu/executor.mojo` | 172 | **Full GPU chain executor** orchestrating batch pricing on GPU |
-| `engines/fpe/gpu/domain.mojo` | — | GPU kernels: knot generation, grid construction, basis functions, boundary conditions |
-| `engines/fpe/gpu/matrix.mojo` | — | GPU kernels: sparse matrix assembly, delta function, initial condition |
-| `engines/fpe/gpu/solver.mojo` | — | GPU kernels: LU decomposition, RADAU5 ODE solver |
-| `engines/fpe/gpu/integration.mojo` | — | GPU integration kernel for option pricing |
-| `engines/fpe/gpu/calibration.mojo` | — | GPU kernels: loss computation, Levenberg-Marquardt optimization |
-
-#### NAIS Engine (8 files)
+#### FPE Engine (11 files, 1,607 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `engines/nais/__init__.mojo` | — | Exports: NaisNet, VolterraProcess, VarianceProcess, FBSDELoss, Trainer, Inferencer |
-| `engines/nais/nais_net.mojo` | 387 | **NAIS-Net architecture**: 6-layer residual network with stable linear layers |
-| `engines/nais/volterra.mojo` | 139 | Fractional Brownian motion via Volterra representation (direct + FFT convolution) |
-| `engines/nais/variance.mojo` | — | Rough Bergomi variance process: `ε(t)·exp(η·X̃ - 0.5η²t^{2H})` |
-| `engines/nais/fbsde.mojo` | — | Forward-backward SDE loss with tracked autodiff |
-| `engines/nais/trainer.mojo` | — | CPU training loop with finite-difference gradients |
-| `engines/nais/inferencer.mojo` | — | Online inference: `(t,S,V) → (price, delta, implied vol)` |
-| `engines/nais/gpu_trainer.mojo` | — | GPU training executor for NAIS-Net |
-| `engines/nais/gpu_forward_kernels.mojo` | — | GPU batch forward pass kernel for NAIS-Net |
-| `engines/nais/gpu_train_kernels.mojo` | — | GPU training kernels: FBSDE loss, gradient descent |
+| `engines/fpe/__init__.mojo` | 10 | Exports: HestonParams, FPEDomain, FPECachedBasis, FPESolver, PDFComputer |
+| `engines/fpe/solver.mojo` | 105 | **FPESolver**: RadauIIA time integration with CSR SpMV |
+| `engines/fpe/galerkin.mojo` | 125 | **Galerkin assembly**: mass matrix M and stiffness matrix K (CPU) |
+| `engines/fpe/galerkin_gpu.mojo` | 63 | GPU Galerkin: dot-product-based matrix assembly |
+| `engines/fpe/domain.mojo` | 294 | **FPEDomain**: knot generation, grid points, basis construction, quadrature weights |
+| `engines/fpe/domain_gpu.mojo` | 81 | GPU domain: knot generation, boundary conditions |
+| `engines/fpe/heston_params.mojo` | 81 | Heston model parameters struct with Feller condition check |
+| `engines/fpe/initial_cond.mojo` | 130 | **Initial condition**: bivariate Gaussian via OSQP NNLS solve (CPU) |
+| `engines/fpe/initial_cond_gpu.mojo` | 179 | GPU initial condition: OSQP on GPU |
+| `engines/fpe/pdf.mojo` | 47 | PDF reconstruction: `pdf = Φ @ q(t)` (CPU) |
+| `engines/fpe/pdf_gpu.mojo` | 81 | GPU PDF reconstruction |
 
-#### Calibrator (3 files)
-
-| File | Lines | Description |
-|------|-------|-------------|
-| `engines/calibrator/__init__.mojo` | — | Exports: Calibrator, ObjectiveFunction |
-| `engines/calibrator/calibrator.mojo` | — | Heston parameter calibration using Levenberg-Marquardt |
-| `engines/calibrator/objective.mojo` | — | Calibration objective: sum of squared pricing errors vs market prices |
-
-### Layer 2: Domain Numerics (18 files, ~1,700 lines)
-
-#### B-Spline Module (5 files)
+#### FPE GPU Excecutor (2 files, 469 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `numerics/bspline/__init__.mojo` | — | Exports: GenerateKnots, BSplineBasis, RecombinationBasis, TensorProductBasis |
-| `numerics/bspline/basis.mojo` | 188 | **B-spline evaluation** via De Boor-Cox algorithm with SIMD vectorization |
-| `numerics/bspline/knots.mojo` | — | Knot vector generation: uniform, Chebyshev, non-uniform |
-| `numerics/bspline/recombination.mojo` | — | Boundary condition enforcement via recombination matrix |
-| `numerics/bspline/tensor_product.mojo` | — | 2D tensor product basis for (S,V) grid with Kronecker products |
+| `engines/fpe/gpu/__init__.mojo` | 17 | Package marker |
+| `engines/fpe/gpu/executor.mojo` | 452 | **GPUFullChainExecutor**: full GPU batch chain (knots → grid → basis → matrix → solve → integrate) |
 
-#### ODE Solvers (4 files)
+#### NAIS Engine (11 files, 1,371 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `numerics/ode/__init__.mojo` | — | Exports: ODESystem, ODESolution, RungeKutta45, BackwardEuler, RadauIIA |
-| `numerics/ode/radau.mojo` | 377 | **RadauIIA** implicit RK solver (order 5) for stiff FPE; BackwardEuler fallback |
-| `numerics/ode/rk45.mojo` | — | Explicit Runge-Kutta 45 solver with adaptive step size |
-| `numerics/ode/types.mojo` | — | ODESystem trait and ODESolution struct definitions |
+| `engines/nais/__init__.mojo` | 10 | Exports: NaisNet, VolterraProcess, VarianceProcess, FBSDELoss, Trainer, Inferencer |
+| `engines/nais/nais_net.mojo` | 416 | **NAIS-Net**: 6-layer residual network with stable linear layers |
+| `engines/nais/volterra.mojo` | 131 | Fractional Brownian motion via Volterra + FFT convolution |
+| `engines/nais/variance.mojo` | 39 | Rough Bergomi variance: `ε(t)·exp(η·X̃ - 0.5η²t^{2H})` |
+| `engines/nais/fbsde.mojo` | 172 | Forward-backward SDE loss with tracked autodiff |
+| `engines/nais/trainer.mojo` | 252 | CPU training loop with finite-difference gradients |
+| `engines/nais/inferencer.mojo` | 107 | Online inference: `(t,S,V) → (price, delta, implied vol)` |
+| `engines/nais/utils.mojo` | 72 | NAIS shared utilities (weights, schedule) |
+| `engines/nais/gpu_trainer.mojo` | 60 | GPU training executor |
+| `engines/nais/gpu_forward_kernels.mojo` | 130 | GPU batch forward pass |
+| `engines/nais/gpu_train_kernels.mojo` | 32 | GPU training kernels (FBSDE loss, gradients) |
 
-#### Optimizer (3 files)
-
-| File | Lines | Description |
-|------|-------|-------------|
-| `numerics/optim/__init__.mojo` | 4 | Exports: ProjectedGradient, OSQP, LevenbergMarquardt |
-| `numerics/optim/lm.mojo` | 100 | **Levenberg-Marquardt** nonlinear least squares solver |
-| `numerics/optim/osqp.mojo` | 81 | **OSQP solver** (ADMM-based QP) for non-negative least squares |
-
-#### Neural Network Runtime (4 files)
-
-| File | Lines | Description |
-|------|-------|-------------|
-| `numerics/nn/__init__.mojo` | — | Exports: StableLinear, GradientTape, Adam |
-| `numerics/nn/autograd.mojo` | 149 | **Reverse-mode autodiff tape**: record_value/add/mul/sin/linear, backward |
-| `numerics/nn/stable_linear.mojo` | — | Spectral-norm constrained linear layer for NAIS-Net stability |
-| `numerics/nn/adam.mojo` | — | Adam adaptive learning rate optimizer |
-
-#### Utilities (2 files)
+#### Calibrator (4 files, 452 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `numerics/__init__.mojo` | — | Exports: BSplineBasis, RecombinationBasis, TensorProductBasis, linalg, utils |
-| `numerics/utils.mojo` | 136 | Shared utilities: linspace, zeros, copy_vec/mat, swap_rows, abs/max/min/clamp |
-| `numerics/linalg.mojo` | — | LU solve with partial pivoting, dense matvec |
+| `engines/calibrator/__init__.mojo` | 4 | Exports: Calibrator |
+| `engines/calibrator/calibrator.mojo` | 136 | Heston LM calibration: `calibrate()` with Jacobian |
+| `engines/calibrator/objective.mojo` | 102 | Objective function: sum of squared pricing errors |
+| `engines/calibrator/objective_gpu.mojo` | 185 | GPU objective + LM step kernels |
 
-### Layer 1: Sparse Math (6 files, ~608 lines)
+### Layer 2: Domain Numerics (25 files, 3,953 lines)
 
-| File | Lines | Description |
-|------|-------|-------------|
-| `sparse/__init__.mojo` | 5 | Exports: COOMatrix, CSRMatrix, DiagMatrix, sparse operations |
-| `sparse/csr.mojo` | 166 | **CSRMatrix** with SIMD SpMV, zero-allocation `spmv_into`, transpose |
-| `sparse/coo.mojo` | 137 | **COOMatrix** with merge-sort conversion to CSR |
-| `sparse/diag.mojo` | 63 | Diagonal matrix with SIMD multiplication and inversion |
-| `sparse/ops.mojo` | 171 | Sparse operations: **add**, **scale**, **transpose**, **spgemm**, **spmm**, **kron** |
-| `sparse/gpu_kernels.mojo` | 66 | GPU SpMV kernels (single and batch) |
-
-### GPU Utilities (4 files)
+#### B-Spline Module (6 files, 728 lines)
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `gpu_utils/__init__.mojo` | — | Exports: GPU detection, context creation, dtype utilities |
-| `gpu_utils/detect.mojo` | 59 | **Multi-backend GPU detection**: Metal/CUDA/HIP/generic/CPU |
-| `gpu_utils/dtype.mojo` | — | Cross-platform dtype/layout constants (METAL_*, CUDA_*, HIP_*) |
-| `gpu_utils/host_utils.mojo` | — | Automatic DeviceContext creation based on detected backend |
+| `numerics/bspline/__init__.mojo` | 7 | Exports: GenerateKnots, BSplineBasis, RecombinationBasis, TensorProductBasis |
+| `numerics/bspline/basis.mojo` | 213 | **B-spline evaluation**: De Boor-Cox with SIMD, eval_all collocation |
+| `numerics/bspline/knots.mojo` | 282 | Knot vector: uniform, Chebyshev, from_data; `s_min`/`s_max` clamping |
+| `numerics/bspline/knots_gpu.mojo` | 126 | GPU knot generation |
+| `numerics/bspline/recombination.mojo` | 66 | Boundary condition recombination matrix |
+| `numerics/bspline/tensor_product.mojo` | 24 | 2D tensor product basis for (S,V) grid |
+
+#### ODE Solvers (4 files, 1,623 lines)
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `numerics/ode/__init__.mojo` | 4 | Exports: ODESystem, RadauIIA, BackwardEuler |
+| `numerics/ode/radau.mojo` | 1,151 | **RadauIIA**: 3-stage implicit RK (order 5), Newton iteration, Rosenbrock/W function, adaptive step control; BackwardEuler fallback |
+| `numerics/ode/radau_gpu.mojo` | 452 | GPU RadauIIA solver |
+| `numerics/ode/types.mojo` | 12 | ODESystem trait: `rhs(t, y, dydt)` + `dim()` |
+
+#### Optimizer (3 files, 298 lines)
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `numerics/optim/__init__.mojo` | 4 | Exports: OSQP, LevenbergMarquardt |
+| `numerics/optim/lm.mojo` | 121 | **Levenberg-Marquardt** nonlinear least squares |
+| `numerics/optim/osqp.mojo` | 173 | **OSQP**: ADMM-based QP solver for non-negative least squares |
+
+#### Neural Network Runtime (4 files, 316 lines)
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `numerics/nn/__init__.mojo` | 5 | Exports: StableLinear, GradientTape, Adam |
+| `numerics/nn/autograd.mojo` | 145 | **Reverse-mode autodiff** tape: record_value/add/mul/sin/linear, backward |
+| `numerics/nn/stable_linear.mojo` | 102 | Spectral-norm constrained linear layer `W = I - RᵀR` |
+| `numerics/nn/adam.mojo` | 57 | Adam adaptive learning rate optimizer |
+
+#### Utilities (7 files, 979 lines)
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `numerics/utils/__init__.mojo` | 13 | Exports: linspace, zeros, copy, swap, clamp, simd helpers, linalg, sparse_lu |
+| `numerics/utils/helpers.mojo` | 90 | `linspace`, `zeros`, `copy_vec`/`copy_mat`, `swap_rows`, `abs`/`max`/`min`/`clamp` |
+| `numerics/utils/simd_utils.mojo` | 107 | SIMD load/store/convert/accumulate helpers |
+| `numerics/utils/fixed_size_vector.mojo` | 265 | Fixed-size vector: element-wise ops, reductions, SIMD dot product |
+| `numerics/utils/linalg.mojo` | 58 | Dense LU solve with partial pivoting |
+| `numerics/utils/linalg_gpu.mojo` | 123 | GPU linear algebra: LU, solve, matvec |
+| `numerics/utils/sparse_lu.mojo` | 323 | **Sparse LU decomposition** with partial pivoting + Schur complement |
+
+### Layer 1: Sparse Math (13 files, 1,449 lines)
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `sparse/__init__.mojo` | 13 | Exports: CSRMatrix, CSCMatrix, DiagMatrix, all ops |
+| `sparse/csr.mojo` | 438 | **CSRMatrix**: SIMD SpMV, zero-allocation `spmv_into`, transpose, assemble |
+| `sparse/csc.mojo` | 20 | **CSCMatrix**: column-compressed storage |
+| `sparse/diag.mojo` | 60 | Diagonal matrix with SIMD multiplication and inversion |
+| `sparse/add.mojo` | 156 | Sparse matrix addition: `C = A + B` with merge-sort |
+| `sparse/scale.mojo` | 72 | Sparse matrix scaling: `C = αA` |
+| `sparse/diag_scale.mojo` | 75 | Diagonal scaling: `diag @ A` and `A @ diag` |
+| `sparse/diag_mul.mojo` | 87 | Diagonal×diagonal and diagonal×CSR multiplication |
+| `sparse/kron.mojo` | 113 | **Kronecker product**: `kron(A, B)` for tensor-product assembly |
+| `sparse/kron_spmv.mojo` | 133 | **Kronecker SpMV**: `(A⊗B) @ x` without materializing the product |
+| `sparse/spgemm.mojo` | 157 | **Sparse GEMM**: `C = A @ B` with symbolic+numeric phases |
+| `sparse/scratch.mojo` | 64 | Scratch allocation workspace for SpMV accumulator |
+| `sparse/gpu_kernels.mojo` | 65 | GPU SpMV kernels (single + batch) |
+
+### GPU Utilities (3 files, 116 lines)
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `gpu_utils/__init__.mojo` | 3 | Package marker |
+| `gpu_utils/detect.mojo` | 64 | **Multi-backend GPU detection**: Metal/CUDA/HIP/generic |
+| `gpu_utils/dtype.mojo` | 49 | Cross-platform dtype/layout constants |
 
 ---
 
 ## Core Components Detail
 
-### 1. Sparse Mathematics (`src/sparse/`, 608 lines)
+### 1. Sparse Mathematics (`src/sparse/`, 13 files, 1,449 lines)
 
-Custom sparse matrix operations optimized for FPE assembly.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  sparse/                                                    │
-│  ├── csr.mojo (166) ─────► CSRMatrix                        │
-│  │   ├── spmv()        SIMD vectorized row dot products    │
-│  │   ├── spmv_into()   Zero-allocation for ODE inner loops  │
-│  │   └── transpose()   O(nnz) without dense round-trip     │
-│  │                                                          │
-│  ├── coo.mojo (137) ─────► COOMatrix                       │
-│  │   ├── append()      Efficient triplet accumulation      │
-│  │   └── to_csr()      Merge-sort → CSR conversion         │
-│  │                                                          │
-│  ├── diag.mojo (63) ─────► DiagonalMatrix                   │
-│  │   └── matvec()      SIMD diagonal scaling               │
-│  │                                                          │
-│  ├── ops.mojo (171) ─────► kron, spgemm, spmm, add, scale  │
-│  │   ├── kron()        Kronecker: O(nnz_A × nnz_B)        │
-│  │   ├── spgemm()      Sparse × sparse → sparse            │
-│  │   ├── spmm()        Sparse × dense → dense               │
-│  │   ├── add()         O(nnz) merge-sort add               │
-│  │   └── scale()       O(nnz) direct scaling               │
-│  │                                                          │
-│  └── gpu_kernels.mojo (66) ─► GPU SpMV                      │
-│      ├── spmv_kernel()    One thread per row               │
-│      └── batch_spmv_kernel() grid=(nrows, B)               │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Key Optimization**: `spmv_into` eliminates List allocation overhead in ODE inner loops where `rhs()` is called hundreds of times.
-
-### 2. B-Spline Module (`src/numerics/bspline/`, 188+ lines)
+Custom sparse matrix operations optimized for FPE Galerkin assembly.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  numerics/bspline/                                          │
-│  ├── basis.mojo (188)                                       │
-│  │   ├── BSplineBasis[degree]  De Boor-Cox with SIMD       │
-│  │   ├── de_boor_cox()        Recursive evaluation         │
-│  │   ├── _de_boor_cox_simd()  SIMD batch evaluation        │
-│  │   ├── evaluate_batch_simd() Multiple points simultaneously│
-│  │   ├── first_derivative_all() Basis function derivatives  │
-│  │   └── eval_all()           Sparse collocation matrix      │
-│  │                                                          │
-│  ├── knots.mojo ─────────► GenerateKnots                     │
-│  │   ├── uniform()           Clamped uniform knots          │
-│  │   ├── chebyshev()         Chebyshev nodes                │
-│  │   └── from_data()         Quantile-based knots           │
-│  │                                                          │
-│  ├── recombination.mojo ► RecombinationBasis               │
-│  │   └── Boundary conditions via recombination matrix        │
-│  │                                                          │
-│  └── tensor_product.mojo ► TensorProductBasis              │
-│      └── 2D basis for (S,V) grid using Kronecker products  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  sparse/                                                         │
+│  ├── csr.mojo (438) ───────────► CSRMatrix                       │
+│  │   ├── spmv()               SIMD vectorized row dot products   │
+│  │   ├── spmv_into()          Zero-allocation for ODE inner loops│
+│  │   ├── transpose()          O(nnz) without dense round-trip    │
+│  │   └── assemble()           Build CSR from triplets             │
+│  │                                                               │
+│  ├── csc.mojo (20) ────────────► CSCMatrix                       │
+│  │   └── Column-compressed format for column access              │
+│  │                                                               │
+│  ├── diag.mojo (60) ───────────► DiagMatrix                      │
+│  │   └── matvec()             SIMD diagonal scaling              │
+│  │                                                               │
+│  ├── kron.mojo (113) ───────────► kron(A, B)                     │
+│  │   └── O(nnz_A × nnz_B) for tensor-product assembly            │
+│  │                                                               │
+│  ├── kron_spmv.mojo (133) ──────► (A⊗B) @ x                     │
+│  │   └── SpMV without materializing Kronecker product            │
+│  │                                                               │
+│  ├── spgemm.mojo (157) ─────────► C = A @ B                      │
+│  │   ├── symbolic_phase()     Predict nnz pattern                │
+│  │   └── numeric_phase()      Compute values                     │
+│  │                                                               │
+│  ├── add.mojo (156) ────────────► C = A + B                      │
+│  ├── scale.mojo (72) ───────────► C = αA                         │
+│  ├── diag_scale.mojo (75) ──────► diag @ A or A @ diag           │
+│  ├── diag_mul.mojo (87) ────────► Diag@Diag, Diag@CSR            │
+│  ├── scratch.mojo (64) ─────────► Scratch workspace              │
+│  └── gpu_kernels.mojo (65) ─────► GPU SpMV                       │
+│      ├── spmv_kernel()         One thread per row                │
+│      └── batch_spmv_kernel()   grid=(nrows, B)                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Key Optimization**: `spmv_into` eliminates List allocation overhead in ODE inner loops where `rhs()` is called hundreds of times. `kron_spmv` avoids materializing the full Kronecker product matrix.
+
+### 2. B-Spline Module (`src/numerics/bspline/`, 6 files, 728 lines)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  numerics/bspline/                                               │
+│  ├── basis.mojo (213)                                            │
+│  │   ├── BSplineBasis[degree]  De Boor-Cox with SIMD            │
+│  │   ├── de_boor_cox()         Recursive evaluation              │
+│  │   ├── _de_boor_cox_simd()   SIMD batch evaluation             │
+│  │   ├── evaluate_batch_simd() Multiple points simultaneously    │
+│  │   ├── first_derivative_all() Basis function derivatives        │
+│  │   └── eval_all()            Sparse collocation matrix          │
+│  │                                                               │
+│  ├── knots.mojo (282) ───────────► GenerateKnots                  │
+│  │   ├── uniform()              Clamped uniform knots             │
+│  │   ├── chebyshev()            Chebyshev nodes                   │
+│  │   ├── from_data()            Quantile knots                    │
+│  │   └── clamp_s_min/s_max()   Domain boundary enforcement        │
+│  │                                                               │
+│  ├── knots_gpu.mojo (126) ───────► GPU knot generation            │
+│  ├── recombination.mojo (66) ────► RecombinationBasis             │
+│  │   └── Boundary conditions via recombination matrix             │
+│  └── tensor_product.mojo (24) ───► TensorProductBasis             │
+│       └── 2D basis: kron(Bs, Bv)                                 │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Optimization**: `evaluate_batch_simd` processes multiple evaluation points simultaneously using SIMD vectors.
 
-### 3. ODE Integrators (`src/numerics/ode/`, 377+ lines)
+### 3. ODE Integrators (`src/numerics/ode/`, 4 files, 1,623 lines)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  numerics/ode/                                               │
-│  ├── radau.mojo (377)                                       │
-│  │   ├── RadauIIA[System]  3-stage implicit RK, order 5    │
-│  │   │   ├── Comptime Butcher tableau constants             │
-│  │   │   ├── Newton iteration for implicit stages           │
-│  │   │   └── Adaptive step size control                    │
-│  │   │                                                    │
-│  │   └── BackwardEuler[System]  Simple stiff fallback       │
-│  │       └── Richardson extrapolation                      │
-│  │                                                          │
-│  ├── rk45.mojo ─────────► RungeKutta45                      │
-│  │   └── Dormand-Prince embedded RK method                  │
-│  │                                                          │
-│  └── types.mojo ────────► ODESystem trait                   │
-│      └── rhs(t, y, dydt) + dim() interface                 │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  numerics/ode/                                                    │
+│  ├── radau.mojo (1,151)                                          │
+│  │   ├── RadauIIA[System]      3-stage implicit RK, order 5      │
+│  │   │   ├── Comptime Butcher tableau constants                   │
+│  │   │   ├── Newton iteration with analytical Jacobian            │
+│  │   │   ├── Rosenbrock/W function for step rejection             │
+│  │   │   └── Adaptive step size control (PI controller)          │
+│  │   │                                                           │
+│  │   └── BackwardEuler[System]  Simple stiff fallback             │
+│  │       └── Fixed-point iteration                               │
+│  │                                                               │
+│  ├── radau_gpu.mojo (452) ────────► GPU RadauIIA                  │
+│  │   └── GPU-aware Newton + SpMV                                 │
+│  │                                                               │
+│  └── types.mojo (12) ─────────────► ODESystem trait               │
+│       └── rhs(t, y, dydt) + dim() interface                     │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Feature**: `comptime` Butcher tableau for RadauIIA eliminates runtime table lookups.
+**Key Features**: Comptime Butcher tableau constants eliminate runtime table lookups. RadauIIA handles stiff FPE semi-discrete systems. GPU variant supports batch ODE solves.
 
-### 4. FPE Engine (`src/engines/fpe/`, ~400+ lines)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  engines/fpe/                                               │
-│  ├── solver.mojo (236)                                      │
-│  │   ├── FPESolver[B]  Unified solver: B=1→CPU, B>1→GPU   │
-│  │   │   ├── _integrate_cpu_sparse()  RadauIIA + sparse   │
-│  │   │   ├── _solve_gpu_batch()       GPU parallel path   │
-│  │   │   └── _solve_cpu_parallel()    CPU multi-core       │
-│  │   │                                                    │
-│  │   ├── FPESparseSystem  ODESystem using CSR spmv        │
-│  │   └── FPEDenseSystem   Fallback dense system            │
-│  │                                                          │
-│  ├── galerkin.mojo (158)                                    │
-│  │   ├── GalerkinAssembler[B]                              │
-│  │   ├── mass_matrix()   M = ΦᵀWΦ (sparse)                │
-│  │   └── stiffness_matrix() K = drift + diffusion terms   │
-│  │                                                          │
-│  ├── domain.mojo ────────► FPEDomain                        │
-│  │   ├── build_basis()    Tensor product B-spline basis   │
-│  │   └── quadrature_weights() Gauss-Legendre weights      │
-│  │                                                          │
-│  ├── heston_params.mojo ► HestonParams                     │
-│  │   └── κ, θ, σ, ρ, r, T, S₀, V₀ + Feller validation    │
-│  │                                                          │
-│  ├── initial_cond.mojo ► InitialCondition[B]               │
-│  │   └── Bivariate Gaussian + OSQP NNLS                   │
-│  │                                                          │
-│  └── pdf.mojo ─────────► PDFComputer[B]                    │
-│      └── pdf = Φ @ q(t) reconstruction                     │
-│                                                             │
-│  └── gpu/                                                   │
-│      ├── executor.mojo (172)                                │
-│      │   └── GPUFullChainExecutor[B]                        │
-│      │       ├── execute_batch_pricing()  Full GPU chain   │
-│      │       └── execute_calibration_logic()  GPU LM      │
-│      ├── domain.mojo     GPU knots/grid/basis/boundary      │
-│      ├── matrix.mojo     GPU sparse/delta/initial           │
-│      ├── solver.mojo    GPU LU/RADAU5                       │
-│      ├── integration.mojo GPU payoff integration            │
-│      └── calibration.mojo GPU loss/LM optimization          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 5. NAIS Engine (`src/engines/nais/`, ~600+ lines)
+### 4. FPE Engine (`src/engines/fpe/`, 11+2 files, ~2,076 lines)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  engines/nais/                                              │
-│  ├── nais_net.mojo (387)                                    │
-│  │   ├── NaisNet    6-layer residual architecture          │
-│  │   │   ├── Layer 1: Linear → sin                          │
-│  │   │   ├── Layers 2-4: [StableLinear + skip + sin] × 3   │
-│  │   │   ├── Layer 5: u = W₅h + b₅                         │
-│  │   │   └── Layer 6: φ = W₆h + b₆                         │
-│  │   │                                                    │
-│  │   ├── forward(t, x)           Plain forward pass        │
-│  │   └── forward_tracked(...)    With autodiff tape        │
-│  │                                                          │
-│  ├── volterra.mojo (139)                                    │
-│  │   ├── VolterraProcess[B]  Fractional Brownian motion     │
-│  │   │   ├── generate()      O(N²) direct convolution      │
-│  │   │   └── generate_fft()  O(N log N) FFT convolution   │
-│  │   └── Uses MAX kernels: rfft, irfft                     │
-│  │                                                          │
-│  ├── variance.mojo ────► VarianceProcess[B]                │
-│  │   └── ε(t)·exp(η·X̃ - 0.5η²t^{2H})                     │
-│  │                                                          │
-│  ├── fbsde.mojo ───────► FBSDELoss[B]                      │
-│  │   └── Forward-backward SDE loss computation              │
-│  │                                                          │
-│  ├── trainer.mojo ─────► Trainer[B]                         │
-│  │   └── CPU training loop with finite-difference grads    │
-│  │                                                          │
-│  ├── inferencer.mojo ──► Inferencer[B]                      │
-│  │   └── (t,S,V) → (price, delta, implied vol)             │
-│  │                                                          │
-│  └── gpu_*.mojo ───────► GPU training kernels               │
-│      ├── gpu_trainer.mojo       GPU training executor       │
-│      ├── gpu_forward_kernels.mojo  GPU batch forward        │
-│      └── gpu_train_kernels.mojo   GPU FBSDE loss/gradients  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  engines/fpe/                                                    │
+│  ├── solver.mojo (105)                                           │
+│  │   ├── FPESolver              RadauIIA + CSR SpMV             │
+│  │   ├── FPESparseSystem        ODESystem wrapping CSR SpMV     │
+│  │   └── solve()                Time integration from 0 to T    │
+│  │                                                               │
+│  ├── domain.mojo (294) ───────────► FPEDomain[deg_s, deg_v]      │
+│  │   ├── build_basis()          Tensor product B-spline basis   │
+│  │   ├── quadrature_weights()   Gauss-Legendre weights           │
+│  │   └── cached_basis()         Pre-compute basis for reuse      │
+│  │                                                               │
+│  ├── galerkin.mojo (125) ────────► Galerkin assembly             │
+│  │   ├── mass_from_cached()     M = ΦᵀWΦ                        │
+│  │   └── stiffness_from_cached() K = drift + diffusion terms    │
+│  │                                                               │
+│  ├── initial_cond.mojo (130) ────► Initial condition             │
+│  │   └── initial_condition_from_cached() Bivariate Gaussian      │
+│  │                                                               │
+│  ├── pdf.mojo (47) ───────────────► PDFComputer                  │
+│  │   └── pdf_from_cached()      pdf = Φ @ q(t)                   │
+│  │                                                               │
+│  ├── heston_params.mojo (81) ────► HestonParams                  │
+│  │   └── κ, θ, σ, ρ, r, T, S₀, V₀ + Feller validation          │
+│  │                                                               │
+│  ├── *_gpu.mojo (4 files, 404 lines)  GPU counterparts           │
+│  │   ├── domain_gpu.mojo        GPU basis/grid                   │
+│  │   ├── galerkin_gpu.mojo      GPU matrix assembly              │
+│  │   ├── initial_cond_gpu.mojo  GPU initial condition            │
+│  │   └── pdf_gpu.mojo           GPU PDF reconstruction           │
+│  │                                                               │
+│  └── gpu/executor.mojo (452)     GPUFullChainExecutor            │
+│      └── Full GPU batch pipeline: knots → grid → basis →        │
+│          matrix → solve → integrate                              │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### 6. Neural Network Runtime (`src/numerics/nn/`, ~200+ lines)
+### 5. NAIS Engine (`src/engines/nais/`, 11 files, 1,371 lines)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  numerics/nn/                                               │
-│  ├── autograd.mojo (149)                                    │
-│  │   ├── Tape            Reverse-mode autodiff tape        │
-│  │   │   ├── record_value()  Input value                   │
-│  │   │   ├── record_add()    Addition                      │
-│  │   │   ├── record_mul()    Multiplication                │
-│  │   │   ├── record_sin()    Sine                          │
-│  │   │   ├── record_linear()  W@x + b                     │
-│  │   │   └── backward()      Gradient backpropagation       │
-│  │   │                                                    │
-│  │   └── GradientTape    Finite-difference alternative     │
-│  │                                                          │
-│  ├── stable_linear.mojo ► StableLinear                      │
-│  │   └── W = I - RᵀR (spectral norm constraint)           │
-│  │                                                          │
-│  └── adam.mojo ─────────► Adam optimizer                   │
-│      └── m, v moments + bias correction                   │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  engines/nais/                                                   │
+│  ├── nais_net.mojo (416)                                         │
+│  │   ├── NaisNet            6-layer residual architecture        │
+│  │   │   ├── Layer 1: Linear → sin                               │
+│  │   │   ├── Layers 2-4: [StableLinear + skip + sin] × 3         │
+│  │   │   ├── Layer 5: u = W₅h + b₅                              │
+│  │   │   └── Layer 6: φ = W₆h + b₆                              │
+│  │   │                                                           │
+│  │   ├── forward(t, x)           Plain forward pass              │
+│  │   └── forward_tracked(...)    With autodiff tape              │
+│  │                                                               │
+│  ├── volterra.mojo (131)                                         │
+│  │   ├── VolterraProcess[B]  Fractional Brownian motion          │
+│  │   │   ├── generate()      O(N²) direct convolution           │
+│  │   │   └── generate_fft()  O(N log N) FFT convolution        │
+│  │   └── Uses MAX kernels: rfft, irfft                          │
+│  │                                                               │
+│  ├── variance.mojo (39) ────────► VarianceProcess[B]             │
+│  │   └── Rough Bergomi: ε(t)·exp(η·X̃ - 0.5η²t^{2H})            │
+│  │                                                               │
+│  ├── fbsde.mojo (172) ──────────► FBSDELoss[B]                  │
+│  │   └── Forward-backward SDE loss computation                   │
+│  │                                                               │
+│  ├── trainer.mojo (252) ─────────► Trainer[B]                    │
+│  │   └── CPU training loop with finite-difference grads          │
+│  │                                                               │
+│  ├── inferencer.mojo (107) ──────► Inferencer[B]                 │
+│  │   ├── (t,S,V) → (price, delta, implied vol)                  │
+│  │   ├── _implied_vol_newton()   Newton's method for IV          │
+│  │   └── vol_surface()           Implied vol surface generation  │
+│  │                                                               │
+│  ├── utils.mojo (72) ────────────► Shared utilities               │
+│  └── gpu_*.mojo ────────────────► GPU training kernels            │
+│      ├── gpu_trainer.mojo (60)            GPU training executor   │
+│      ├── gpu_forward_kernels.mojo (130)   GPU batch forward      │
+│      └── gpu_train_kernels.mojo (32)      GPU FBSDE loss/grad    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### 7. GPU Utilities (`src/gpu_utils/`, ~100+ lines)
+### 6. Neural Network Runtime (`src/numerics/nn/`, 4 files, 316 lines)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  gpu_utils/                                                 │
-│  ├── detect.mojo (59)                                       │
-│  │   ├── detect_gpu_backend()  Returns: metal/cuda/hip/cpu │
-│  │   ├── is_gpu_available()    Boolean check               │
-│  │   └── get_device_api_name()  API string for DeviceContext│
-│  │                                                          │
-│  ├── dtype.mojo ───────► METAL_DTYPE, CUDA_DTYPE, etc.     │
-│  │                      Layout constants per backend        │
-│  │                                                          │
-│  └── host_utils.mojo ► create_device_context()             │
-│      └── Automatic backend selection                       │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  numerics/nn/                                                    │
+│  ├── autograd.mojo (145)                                         │
+│  │   ├── Tape            Reverse-mode autodiff tape              │
+│  │   │   ├── record_value()  Input value                        │
+│  │   │   ├── record_add()    Addition                           │
+│  │   │   ├── record_mul()    Multiplication                     │
+│  │   │   ├── record_sin()    Sine                               │
+│  │   │   ├── record_linear()  W@x + b                          │
+│  │   │   └── backward()      Gradient backpropagation            │
+│  │   │                                                           │
+│  │   └── GradientTape    Finite-difference alternative           │
+│  │                                                               │
+│  ├── stable_linear.mojo (102) ► StableLinear                     │
+│  │   └── W = I - RᵀR (spectral norm constraint)                │
+│  │                                                               │
+│  └── adam.mojo (57) ────────────► Adam optimizer                │
+│       └── m, v moments + bias correction                        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 7. GPU Utilities (`src/gpu_utils/`, 3 files, 116 lines)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  gpu_utils/                                                      │
+│  ├── detect.mojo (64)                                            │
+│  │   ├── detect_gpu_backend()    Returns: metal/cuda/hip/cpu    │
+│  │   ├── is_gpu_available()      Boolean check                  │
+│  │   └── get_device_api_name()   API string for DeviceContext   │
+│  │                                                               │
+│  └── dtype.mojo (49) ────────────► METAL_DTYPE, CUDA_DTYPE      │
+│       └── Layout constants per backend                           │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Three Runtime Modes
-
-### Mode 1: CPU Single Pricing (<1ms target)
+## Pipeline Architecture
 
 ```
-Input: (S, K, T, barrier_type, barrier_level, param_hash)
-   │
-   ▼
-[1] PDFCache lookup (Dict[param_hash → PDFGrid])    O(1), <1μs
-   │
-   ▼
-[2] Bicubic interpolation on S×V grid               SIMD, <50μs
-   │
-   ▼
-[3] Pre-computed trapezoidal quadrature            Reused per option
-   │
-   ▼
-[4] Payoff integration: ∫∫ payoff(S)·PDF dS dV    <100μs
-   │   • Payoff hoisted out of V-loop (was O(n_s×n_v), now O(n_s))
-   │   • SIMD inner loop over variance dimension
-   │
-   ▼
-[5] Greeks: Δ, Γ, ν, θ via central finite diff    <200μs
-   │
-   ▼
-Output: (price, Δ, Γ, ν, Θ)                       Total: <400μs
+┌──────────────────────────────────────────────────────────────────────┐
+│                     ComputePipeline (stepwise API)                    │
+│                                                                      │
+│  [1] knots() ───► (s_knots, v_knots)           B-spline knot vectors │
+│  [2] grid_points() ──► (s_pts, v_pts, w_s, w_v)  Collocation points  │
+│  [3] basis_1d() ──► (Bs, dBs, Bv, dBv)       1D basis matrices      │
+│  [4] basis_2d() ──► kron(Bs, Bv)              2D tensor basis       │
+│  [5] initial_condition() ──► q0               Galerkin coefficients │
+│  [6] solve() ──► sol[t_n]                     RadauIIA time stepping │
+│  [7] pdf() ──► PDF(S_i, V_j)                  Terminal distribution  │
+│  [8] price_at(K) ──► prices                   Payoff integration     │
+│  [9] greeks(K) ──► (Δ, Γ, ν)                 Finite difference      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mode 2: GPU Batch Pricing
+### Key Pipeline
 
-```
-Input: N pricing requests + shared HestonParams
-   │
-   ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  GPUFullChainExecutor[B] — Full GPU chain, no CPU fallback       │
-│                                                                  │
-│  [1] generate_knots_gpu_kernel    GPU knot generation            │
-│  [2] grid_gpu_kernel              GPU grid construction          │
-│  [3] basis_gpu_kernel             GPU B-spline basis             │
-│  [4] boundary_gpu_kernel          GPU boundary conditions        │
-│  [5] spmatrix_gpu_kernel          GPU sparse matrix assembly      │
-│  [6] delta_gpu_kernel             GPU delta function             │
-│  [7] initial_gpu_kernel           GPU initial condition           │
-│  [8] lu_gpu_kernel                GPU LU decomposition           │
-│  [9] radau5_gpu_kernel            GPU RADAU5 ODE solver          │
-│  [10] integrate_gpu_kernel         GPU payoff integration         │
-└──────────────────────────────────────────────────────────────────┘
-   │
-   ▼
-Output: B × (price, Δ, Γ, ν, Θ)
-```
-
-### Mode 3: GPU Batch Calibration
-
-```
-Input: Market prices + strikes + expiries + init params (B batches)
-   │
-   ▼
-[1] GPU batch pricing (per LM iteration)
-   │
-   ▼
-[2] loss_gpu_kernel        Compute Σ(model - market)²
-   │
-   ▼
-[3] lm_optimization_gpu_kernel  Levenberg-Marquardt step
-   │
-   ▼
-Output: B × calibrated (κ, θ, σ, ρ, V₀)
-```
+1. **FPE domain** (`FPEDomain[3,3]`): Tensor-product cubic B-splines on (S,V)
+2. **Galerkin assembly**: Mass matrix `M` + stiffness matrix `K` (sparse CSR)
+3. **Initial condition**: Bivariate Gaussian projected via `Mq₀ = Φᵀf`
+4. **Time integration**: RadauIIA solving `M·dq/dt = K·q` from 0→T
+5. **Payoff integration**: `price = e^{-rT} ∫∫ payoff(S)·PDF(S,V) dS dV`
 
 ---
 
@@ -604,52 +610,106 @@ Output: B × calibrated (κ, θ, σ, ρ, V₀)
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Language** | Mojo v0.26.3 | Zero-cost abstractions, SIMD, GPU |
-| **GPU Compute** | MAX AI Kernels 26.3.0 | matmul, gemv, rfft, irfft |
+| **Language** | Mojo >=1.0.0b2 | Zero-cost abstractions, SIMD, GPU |
+| **GPU Compute** | MAX AI Kernels >=26.3 | matmul, gemv, rfft, irfft |
 | **GPU Targets** | Metal, CUDA, HIP | Apple Silicon, NVIDIA, AMD |
 | **Package Manager** | pixi | Reproducible environments |
-| **Testing** | Mojo std.testing | Unit tests |
+| **Python (dev)** | matplotlib, scipy, numpy, pytest | Testing + analysis |
 | **Benchmarks** | Mojo std.benchmark | Performance profiling |
 
 ### Mojo Features Used
 
 | Feature | Usage | Files |
 |---------|-------|-------|
-| `comptime` | Compile-time batch dimension, GPU/CPU dispatch | solver, pricer, detect |
-| `SIMD` | Vectorized B-spline, sparse operations | basis, csr, radau |
-| `traits` | ODESystem, Payoff interfaces | ode/types, payoffs |
+| `comptime` | Compile-time dispatch (B-spline degree, GPU/CPU) | solver, detect, basis |
+| `SIMD` | Vectorized B-spline, sparse, linear algebra | basis, csr, radau, helpers |
+| `traits` | ODESystem, Payoff, Copyable/Movable interfaces | ode/types, payoffs |
 | `struct` | Zero-overhead value types | All files |
-| `has_accelerator()` | Compile-time GPU detection | solver, pricer, detect |
-| `has_apple_gpu_accelerator()` | Metal-specific path | pricer, detect |
-| `has_nvidia_gpu_accelerator()` | CUDA-specific path | detect |
-| `has_amd_gpu_accelerator()` | HIP-specific path | detect |
-| `vectorize`, `parallelize` | SIMD and multi-core | basis, pricer, galerkin |
-| `@fieldwise_init` | Bulk initialization | Most structs |
-| `@always_inline` | Zero call overhead | pricer |
+| `has_accelerator()` | Compile-time GPU detection | detect.mojo |
+| `has_apple_gpu_accelerator()` | Metal-specific path | detect.mojo, dtype.mojo |
+| `has_nvidia_gpu_accelerator()` | CUDA-specific path | detect.mojo |
+| `has_amd_gpu_accelerator()` | HIP-specific path | detect.mojo |
+| `vectorize`, `parallelize` | SIMD and multi-core | basis, csr, helpers, pricer, galerkin |
+| `@fieldwise_init` | Bulk initialization | ~40 structs across codebase |
+| `@always_inline` | Zero call overhead | interpolator |
+| `abi("C")` | C-compatible FFI exports | c_abi.mojo (16 functions) |
 
 ---
 
-## Performance Targets
+## Python API
 
-| Metric | Target | vs Python |
-|--------|--------|-----------|
-| Single pricing (cached PDF) | <400μs | 100× faster |
-| Batch pricing (1000 options) | <10ms | 500× faster |
-| FPE solve (single) | <1s | 60× faster |
-| GPU calibration (64 param sets) | <25s | 10× faster |
+```python
+import fpe_engine as fpe
+
+# One-shot pricing with Greeks
+result = fpe.price(
+    S0=60.0, V0=0.1, T=0.6, r=0.1,
+    kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
+    K=[65, 70, 75, 80, 85, 90, 95, 100],
+    barrier=50.0,
+    option_type="down_and_out_call",
+    n_s=38, n_v=38,
+)
+print(result.prices, result.deltas, result.gammas, result.vegas)
+
+# Stepwise access to pipeline intermediates
+pipe = fpe.Compute(
+    S0=60.0, V0=0.1, T=0.6, r=0.1,
+)
+ks = pipe.knots           # B-spline knot vectors
+gp = pipe.grid_points     # Collocation points + quadrature weights
+pdf = pipe.pdf            # Terminal PDF
+prices = pipe.payoff_price(100.0)  # Barrier + vanilla payoff
+greeks = pipe.greeks([80.0, 100.0, 120.0])
+```
+
+### Option Types
+
+| ID | Name | Barrier |
+|----|------|---------|
+| 0 | Down-and-In Call | S_min = barrier |
+| 1 | Down-and-In Put | S_min = barrier |
+| 2 | Down-and-Out Call | S_min = barrier |
+| 3 | Down-and-Out Put | S_min = barrier |
+| 4 | Up-and-In Call | S_max = barrier |
+| 5 | Up-and-In Put | S_max = barrier |
+| 6 | Up-and-Out Call | S_max = barrier |
+| 7 | Up-and-Out Put | S_max = barrier |
+| 8 | European Call | none |
+| 9 | European Put | none |
+
+---
+
+## Performance Benchmarks
+
+| Metric | Native Mojo | Python Binding | C++ Demo | vs Python Ref |
+|--------|-------------|----------------|----------|---------------|
+| 8-strike Heston pricing | 3.44 s | 4.22 s | 4.18 s | 10.2× faster |
+| In-out parity (DIC+DOC=Van) | 0.0 error | — | — | Exact |
+| DOC vs Python ref error | <0.3% | — | — | — |
+
+*Benchmark params: `num_insert=251`, `s_max=150`, `n_s=38`, `n_v=38`*
 
 ---
 
 ## Dependencies
 
 ```toml
-# pixi.toml
+# pixi.toml — production
 [dependencies]
-max = "==26.3.0.dev2026040405"
-mojo = "==0.26.3.0.dev2026040405"
-matplotlib = ">=3.10.8,<4"
-scipy = ">=1.17.1,<2"
+max = ">=26.3"
+mojo = ">=1.0.0b2.dev2026050805,<2"
 numpy = ">=2.4.3,<3"
+scipy = ">=1.17.1,<2"
+matplotlib = ">=3.10.8,<4"
+seaborn = ">=0.13.2,<0.14"
+polars = ">=1.41.0,<2"
+pytest = ">=9.0.3,<10"
+ipykernel = ">=7.1.0,<8"
+cvxpy = ">=1.8.2,<2"
+plotly = ">=6.6.0,<7"
+nbformat = ">=5.10.4,<6"
+nbconvert = ">=7.17.1,<8"
 ```
 
 ---
@@ -658,13 +718,14 @@ numpy = ">=2.4.3,<3"
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Sparse Math | 6 | 608 |
-| Numerics | 18 | ~1,700 |
-| Engines | 18 | ~2,400 |
-| Server | 9 | ~1,160 |
-| Bindings | 3 | — |
-| GPU Utils | 4 | ~100 |
-| **Total** | **58** | **~7,088** |
+| Sparse Math | 13 | 1,449 |
+| Numerics | 25 | 3,953 |
+| Engines | 29 | 3,431 |
+| Server | 8 | 766 |
+| Bindings | 6 | 939 |
+| GPU Utils | 3 | 116 |
+| **Total (src/)** | **85** | **10,713** |
+| **Tests** | **57** | — |
 
 ---
 
@@ -674,118 +735,109 @@ numpy = ">=2.4.3,<3"
 
 - macOS ARM64 (Apple Silicon) or Linux x86-64
 - pixi package manager
-- Mojo v0.26.3+
-- MAX SDK 26.3.0+
+- Mojo >=1.0.0b2
+- MAX SDK >=26.3
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/FPE_option.git
+git clone https://github.com/elevenwang-creator/FPE_option.git
 cd FPE_option
-
-# Install dependencies
 pixi install
-
-# Build the project
-pixi run build
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests
-pixi run test
-
-# Run GPU benchmarks
-pixi run gpu-bench
+pixi run test        # Python integration tests
+pixi run test-mojo   # Mojo unit tests
 ```
 
-### Usage Example
+### Usage Example (Mojo)
 
 ```mojo
-from engines.fpe.solver import FPESolver
 from engines.fpe.heston_params import HestonParams
 from server.pricing_engine import PricingEngine
+from server.option_types import FpeParams
 
-# Create Heston parameters
-var params = HestonParams(
-    kappa=2.0, theta=0.04, sigma=0.3, rho=-0.7,
-    r=0.05, T=1.0, S0=100.0, V0=0.04
+var heston = HestonParams(
+    kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
+    r=0.1, T=0.6, S0=60.0, V0=0.1,
 )
-
-# Solve FPE (CPU single)
-var solver = FPESolver[1]()
-var pdf = solver.solve(domain, params, t_eval)
-
-# Price barrier option
+var fp = FpeParams(
+    heston=heston, n_s=38, n_v=38,
+    barrier=50.0, option_type=2, strikes=List[Float64](100.0),
+)
 var engine = PricingEngine()
-var result = engine.price[1](requests)
+var result = engine.price(fp)
 ```
+
+### Usage Example (Python)
+
+```python
+import fpe_engine as fpe
+
+result = fpe.price(
+    S0=60.0, V0=0.1, T=0.6, r=0.1,
+    K=[65, 70, 75, 80, 85, 90, 95, 100],
+    barrier=50.0, option_type="down_and_out_call",
+)
+print(result.prices)
+```
+
+---
+
+## Upcoming Features
+
+- **NAIS-Net v2**: GPU-accelerated neural FBSDE solver for rough Bergomi
+- **GPU full-chain pricing**: Metal/CUDA batch pricing via `GPUFullChainExecutor`
+- **Heston calibration**: LM optimization on GPU
 
 ---
 
 ## Key Design Patterns
 
-### 1. Unified Parametric Compute
+### 1. Cached Basis Reuse
 
 ```mojo
-struct FPESolver[B: Int]:
-    # B=1: CPU single-stream with RadauIIA + sparse spmv
-    # B>1 + GPU: GPU parallel (one thread-block per batch)
-    # B>1 + CPU: CPU parallel via parallelize[]
-    
-    comptime if B == 1:
-        return self._integrate_cpu_sparse(M, K, q0, t_eval)
-    else:
-        comptime if has_accelerator():
-            return self._solve_gpu_batch(M, K, q0, t_eval)
-        else:
-            return self._solve_cpu_parallel(M, K, q0, t_eval)
+var domain = FPEDomain[3, 3](heston, n_s, n_v, num_insert)
+var cached = domain.cached_basis()  # Pre-compute once
+
+var M = mass_from_cached(cached)    # Reuse for assembly
+var K = stiffness_from_cached(cached, heston)
+var q0 = initial_condition_from_cached(cached, heston, M)
 ```
 
-### 2. Multi-Backend GPU Support
+The `FPECachedBasis` holds pre-computed collocation matrices, quadrature weights, and grid points — reused across all pipeline stages.
+
+### 2. Comptime-Dispatched GPU Kernels
 
 ```mojo
-from gpu_utils.detect import detect_gpu_backend
-
-comptime if has_apple_gpu_accelerator():
-    # Metal path
-    var tensor = LayoutTensor[METAL_DTYPE, METAL_VEC_LAYOUT](buffer)
-else:
-    # CUDA/HIP path
-    var tensor = LayoutTensor[CUDA_DTYPE, CUDA_VEC_LAYOUT](buffer)
+# GPU kernels live alongside CPU code in _gpu.mojo variants
+from engines.fpe.galerkin import mass_from_cached       # CPU
+from engines.fpe.galerkin_gpu import mass_gpu_kernel    # GPU
 ```
 
-### 3. SIMD-Vectorized Inner Loops
+GPU code is organized as `_gpu.mojo` files at the same level, not in separate subdirectories. The `GPUFullChainExecutor` in `engines/fpe/gpu/` orchestrates the full chain.
+
+### 3. SIMD-Vectorized Quadrature
 
 ```mojo
-# Pre-compute quadrature weights once
-var ds_weights = self._compute_trap_weights(grid.s_points)
-
 # Hoist payoff out of V-loop
 for i in range(n_s):
-    var payoff_val = self._payoff_value(req, S)
+    var payoff_val = payoff.value(S)
     if payoff_val == 0.0:
         continue
-    
-    # SIMD inner loop
-    var j = 0
-    while j + simd_width <= n_v:
-        var pdf_vals = SIMD[DType.float64, simd_width]()
-        var dv_vals = SIMD[DType.float64, simd_width]()
-        for k in range(simd_width):
-            pdf_vals[k] = grid.pdf[i][j + k]
-            dv_vals[k] = dv_weights[j + k]
-        v_sum += (pdf_vals * dv_vals).reduce_add()
-        j += simd_width
+    var pdf_row = SIMD_LOAD[simd_width](grid.pdf, i * n_v)
+    var dv = SIMD_LOAD[simd_width](grid.dv_weights, 0)
+    v_sum += (pdf_row * dv).reduce_add()
 ```
 
 ---
 
 ## License
 
-Proprietary — All rights reserved.
+MIT License — See [LICENSE](./LICENSE) for details.
 
 ---
 
