@@ -24,6 +24,7 @@ build:
       fi
     - mkdir -p $PREFIX/include
     - cp $SRC_DIR/cpp/include/fpe_engine.h $PREFIX/include/
+    - cp $SRC_DIR/cpp/include/fpe_compute.hpp $PREFIX/include/
     - |
       VERSION=$(cd $SRC_DIR && git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "0.0.0")
       PY_VER=$(python -c "import sysconfig; print(sysconfig.get_config_var('py_version_short'))")
