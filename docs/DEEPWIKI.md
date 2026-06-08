@@ -755,7 +755,7 @@ pixi run test-mojo   # Mojo unit tests
 
 ### Usage Example (Mojo)
 
-```mojo
+```python
 from engines.fpe.heston_params import HestonParams
 from server.pricing_engine import PricingEngine
 from server.option_types import FpeParams
@@ -799,7 +799,7 @@ print(result.prices)
 
 ### 1. Cached Basis Reuse
 
-```mojo
+```python
 var domain = FPEDomain[3, 3](heston, n_s, n_v, num_insert)
 var cached = domain.cached_basis()  # Pre-compute once
 
@@ -812,7 +812,7 @@ The `FPECachedBasis` holds pre-computed collocation matrices, quadrature weights
 
 ### 2. Comptime-Dispatched GPU Kernels
 
-```mojo
+```python
 # GPU kernels live alongside CPU code in _gpu.mojo variants
 from engines.fpe.galerkin import mass_from_cached       # CPU
 from engines.fpe.galerkin_gpu import mass_gpu_kernel    # GPU
@@ -822,7 +822,7 @@ GPU code is organized as `_gpu.mojo` files at the same level, not in separate su
 
 ### 3. SIMD-Vectorized Quadrature
 
-```mojo
+```python
 # Hoist payoff out of V-loop
 for i in range(n_s):
     var payoff_val = payoff.value(S)

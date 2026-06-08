@@ -1,4 +1,10 @@
-"""Facade module: single-call API for FPE option pricing."""
+"""Facade module: single-call API for FPE option pricing.
+
+NOTE: `price_batch` is a convenience wrapper for multi-strike pricing
+sharing the same barrier and payoff type. True batch pricing with
+per-option barrier/type is not yet implemented — each option in the
+list must share the same barrier and payoff_type (taken from the first
+element)."""
 
 from engines.fpe.heston_params import HestonParams
 from server.pricing_engine import PricingEngine

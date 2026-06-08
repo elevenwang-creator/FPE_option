@@ -493,8 +493,8 @@ Link with `-lfpe_engine`.
 
 ### Facade (`fpe_option`)
 
-```mojo
-from fpe_option import price, price_batch
+```python
+from fpe_option import price
 from engines.fpe.heston_params import HestonParams
 
 # Construct Heston parameters (12 fields)
@@ -508,23 +508,28 @@ var heston = HestonParams(
 var result = price(heston, K=100.0, barrier=50.0, payoff_type=2, n_s=38, n_v=38)
 print(result.price, result.delta, result.gamma, result.vega, result.success)
 
-# Batch pricing: List[(strike, barrier, payoff_type)]
-var options = List[Tuple[Float64, Float64, Int]](
-    (100.0, 50.0, 2),   # strike=100, barrier=50, down-and-out call
-    (110.0, 50.0, 2),
+# Multi-strike pricing (same barrier/type, via FpeParams)
+var options_list = List[Float64](100.0, 110.0, 120.0)
+var fp = FpeParams(
+    heston=heston.copy(), n_s=38, n_v=38,
+    barrier=50.0, option_type=2,
+    strikes=options_list^,
 )
-var results = price_batch(heston, options^, n_s=38, n_v=38)
+var engine = PricingEngine(rtol=1e-4, atol=1e-6)
+var results = engine.price(fp)
 for r in results:
     print(r.price, r.delta, r.gamma, r.vega)
 ```
 
 `PricingResult` fields: `price`, `delta`, `gamma`, `vega`, `success`.
 
+> **Note**: `price_batch` in `fpe_option` is not yet fully implemented — it currently wraps multi-strike pricing with a shared barrier and payoff type. Use `PricingEngine.price()` with `FpeParams` for multi-strike pricing instead. True batch pricing with per-option barriers/types is planned.
+
 ### Engine API (`PricingEngine`)
 
 For multi-strike pricing with a single FPE solve:
 
-```mojo
+```python
 from server.pricing_engine import PricingEngine
 from server.option_types import FpeParams, PricingResult
 from engines.fpe.heston_params import HestonParams
@@ -547,7 +552,7 @@ var results = engine.price(fp)
 
 For step-by-step access to intermediate results (knots, basis, PDF, etc.):
 
-```mojo
+```python
 from server.compute_pipeline import ComputePipeline
 from server.option_types import FpeParams
 from engines.fpe.heston_params import HestonParams
