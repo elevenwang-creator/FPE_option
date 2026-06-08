@@ -58,7 +58,7 @@ tests:
         - fpe_engine
 
 about:
-  homepage: https://github.com/knight/fpe-option
+  homepage: https://github.com/elevenwang-creator/FPE_option
   license: MIT
   summary: FPE Option Pricing Engine - Mojo + MAX AI Kernels
   description: |
