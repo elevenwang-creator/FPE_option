@@ -2,6 +2,16 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "python/examples/*.gif"
+      - "python/examples/*.apng"
+      - "python/examples/*.mp4"
+      - "python/examples/*.png"
+      - "scripts/regenerate_gifs.py"
+      - "img/**"
+      - "images/**"
   pull_request:
     branches: [main]
 
@@ -18,8 +28,6 @@ jobs:
       - run: pixi run build
       - run: pixi run test
       - run: pixi run test-fpe
-      - run: pixi auth login --token ${{ secrets.PIXI_TOKEN }} https://repo.prefix.dev
-      - run: pixi build
 
   fpe-mojo-tests:
     strategy:
