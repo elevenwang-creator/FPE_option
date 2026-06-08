@@ -17,5 +17,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: prefix-dev/setup-pixi@v0.8.5
+      - name: Set version from git tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python -c "
+          import re, sys
+          V = sys.argv[1]
+          for f in ['pixi.toml', 'recipe.yaml']:
+              with open(f) as fh:
+                  s = fh.read()
+              s = re.sub(r'(version\s*[=:])\s*\"[^\"]+\"', rf'\1 \"{V}\"', s)
+              with open(f, 'w') as fh:
+                  fh.write(s)
+          " "$VERSION"
       - run: pixi auth login --token ${{ secrets.PIXI_TOKEN }} https://prefix.dev
       - run: pixi publish --path . --target-channel https://prefix.dev/fpe-engine
