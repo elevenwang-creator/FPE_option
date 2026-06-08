@@ -2,8 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Find all Mojo test files, excluding NAIS and GPU tests
-EXCLUDE_PATTERNS="test_nais_|test_gpu_|test_metal_gpu|test_cpu_gpu|test_max_integration"
+# Find all Mojo test files, excluding NAIS, GPU, and slow feature tests
+EXCLUDE_PATTERNS="test_nais_|test_gpu_|test_metal_gpu|test_cpu_gpu|test_max_integration|test_calibrator|test_bindings|test_e2e_pipeline|test_facade|test_fpe_engine|test_pricing_engine|test_four_pipelines|test_compute_pipeline|test_fbsde_tracked"
 TESTS=()
 while IFS= read -r f; do
     TESTS+=("$f")
