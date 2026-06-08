@@ -2,7 +2,6 @@
 
 *Fokker-Planck-based option pricing for Heston stochastic volatility model*
 
-[![CI](https://github.com/elevenwang-creator/FPE_option/actions/workflows/ci.yml/badge.svg)](https://github.com/elevenwang-creator/FPE_option/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Mojo](https://img.shields.io/badge/Mojo-%E2%89%A51.0.0b2-orange)
 
@@ -259,6 +258,8 @@ pixi run test
 pixi add fpe-engine
 ```
 
+Requires the `modular-community` channel: add `https://repo.prefix.dev/modular-community` to your pixi channels or conda configuration.
+
 ### From source
 
 ```bash
@@ -313,8 +314,8 @@ p = Compute(
 # Access intermediate results (lazy-evaluated properties)
 knots = p.knots                    # KnotsResult: .s, .v (ndarray)
 gp = p.grid_points                 # GridPointsResult: .s, .v, .s_weights, .v_weights
-basis = p.basis_1d                 # Basis1DResult: .Bs, .dBs, .Bv, .dBv (scipy CSR)
-basis_2d = p.basis_2d               # 2D tensor-product basis (scipy CSR)
+basis = p.basis_1d                 # Basis1DResult: .Bs, .dBs, .Bv, .dBv (Mojo CSRMatrix)
+basis_2d = p.basis_2d               # 2D tensor-product basis (Mojo CSRMatrix)
 q0 = p.initial_condition           # Initial coefficients (ndarray)
 q_t = p.solve                      # list[ndarray], one per time step
 pdf = p.pdf                        # Terminal PDF (ndarray, shape [n_s, n_v])
@@ -505,13 +506,30 @@ target_link_libraries(my_pricer PRIVATE ${FPE_ENGINE_LIBRARY})
 
 Conda installs `fpe_engine.h` and `fpe_compute.hpp` to `$CONDA_PREFIX/include/` and `libfpe_engine.dylib`/`.so` to `$CONDA_PREFIX/lib/`. For pixi users, the path is `$PIXI_PROJECT_ROOT/.pixi/envs/default/`.
 
+### Build & Run Your Own C++ Program
+
+The repo includes a demo at [`cpp/examples/demo.cpp`](cpp/examples/demo.cpp) showing the full pipeline (European + barrier + Greeks):
+
+```bash
+# Run the pre-built demo
+pixi run cpp-run
+```
+
+Or compile any C++17 program against the library:
+
+```bash
+c++ -std=c++17 -I cpp/include -L cpp/libfpe_engine.dylib -o my_pricer my_pricer.cpp -lfpe_engine
+```
+
+For `pixi add fpe-engine` users: link against `$CONDA_PREFIX/lib/libfpe_engine` with `-I $CONDA_PREFIX/include`.
+
 ---
 
 ## Mojo API
 
 ### Facade (`fpe_option`)
 
-```python
+```mojo
 from fpe_option import price
 from engines.fpe.heston_params import HestonParams
 
@@ -533,7 +551,7 @@ var fp = FpeParams(
     barrier=50.0, option_type=2,
     strikes=options_list^,
 )
-var engine = PricingEngine(rtol=1e-4, atol=1e-6)
+var engine = PricingEngine(rtol=1e-4, atol=1e-6, num_insert=251)
 var results = engine.price(fp)
 for r in results:
     print(r.price, r.delta, r.gamma, r.vega)
@@ -547,7 +565,7 @@ for r in results:
 
 For multi-strike pricing with a single FPE solve:
 
-```python
+```mojo
 from server.pricing_engine import PricingEngine
 from server.option_types import FpeParams, PricingResult
 from engines.fpe.heston_params import HestonParams
@@ -568,9 +586,9 @@ var results = engine.price(fp)
 
 ### Pipeline API (`ComputePipeline`)
 
-For step-by-step access to intermediate results (knots, basis, PDF, etc.):
+For full control of each FPE step:
 
-```python
+```mojo
 from server.compute_pipeline import ComputePipeline
 from server.option_types import FpeParams
 from engines.fpe.heston_params import HestonParams
@@ -736,9 +754,9 @@ An end-to-end GPU pipeline that runs every step (knot generation → grid → ba
 | GPU PDF integration and batch payoff pricing | Implemented |
 | GPU SpMV kernels (CSR format) | Implemented |
 | Multi-backend GPU detection (Metal, CUDA, HIP) | Implemented |
-| Comptime dispatch: B=1 → CPU, B>1 → GPU | Implemented |
+| Comptime dispatch: B=1 → CPU, B>1 → GPU | In progress |
 
-*Files: `src/engines/fpe/gpu/`, `src/numerics/ode/radau_gpu.mojo`, `src/sparse/gpu_kernels.mojo`, `src/gpu_utils/`, `examples/batch_price.mojo`*
+*Files: `src/engines/fpe/gpu/`, `src/numerics/ode/radau_gpu.mojo`, `src/sparse/gpu_kernels.mojo`, `src/gpu_utils/`*
 
 ### Heston Model Calibration
 
