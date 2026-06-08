@@ -26,7 +26,9 @@ jobs:
           for f in ['pixi.toml', 'recipe.yaml']:
               with open(f) as fh:
                   s = fh.read()
-              s = re.sub(r'(version\s*[=:])\s*\"[^\"]+\"', rf'\1 \"{V}\"', s)
+              def repl(m):
+                  return m.group(0) if m.group(2) == '*' else f'{m.group(1)} \"{V}\"'
+              s = re.sub(r'(version\s*[=:])\s*\"([^\"]+)\"', repl, s)
               with open(f, 'w') as fh:
                   fh.write(s)
           " "$VERSION"
