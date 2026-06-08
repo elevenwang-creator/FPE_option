@@ -11,15 +11,15 @@
 
 ## Project Overview
 
-A production-grade option pricing engine (~10,713 lines of Mojo, 85 source files) for the Heston stochastic volatility model:
+A production-grade option pricing engine (~10,713 lines of Mojo, 85 source files) that ports three Python reference implementations into high-performance Mojo:
 
-| Component | Source | Lines | Purpose |
-|-----------|--------|-------|---------|
-| **FPE Solver** | `src/engines/fpe/` | ~1,607 | Heston model pricing via B-spline Galerkin + RadauIIA |
-| **NAIS-Net** | `src/engines/nais/` | ~1,371 | Neural FBSDE solver for rough Bergomi |
-| **Pricing Server** | `src/server/` | ~766 | Sub-ms single + batch pricing frontend |
-| **Sparse Math** | `src/sparse/` | ~1,449 | Custom CSR/CSC with SIMD SpMV, Kronecker, SpGEMM |
-| **Domain Numerics** | `src/numerics/` | ~3,953 | B-splines, ODE, optimization, NN runtime, linear algebra |
+| Component | Python Reference | Mojo Source | Mojo Lines | Purpose |
+|-----------|-----------------|-------------|------------|---------|
+| **FPE Solver** | `docs/python_reference/FPE_Solver_Final_Version.py` | `src/engines/fpe/` | ~1,607 | Heston pricing via B-spline Galerkin + RadauIIA |
+| **NAIS-Net** | `docs/python_reference/NAIS_rBM.py` | `src/engines/nais/` | ~1,371 | Neural FBSDE solver for rough Bergomi |
+| **Pricing Demo** | `docs/python_reference/Barrier_Call_Option_Pricing.ipynb` | `src/server/` | ~766 | Sub-ms single + batch pricing frontend |
+| **Sparse Math** | — | `src/sparse/` | ~1,449 | Custom CSR/CSC with SIMD SpMV, Kronecker, SpGEMM |
+| **Domain Numerics** | — | `src/numerics/` | ~3,953 | B-splines, ODE, optimization, NN runtime, linear algebra |
 
 ### Key Features
 
