@@ -357,7 +357,7 @@ g = p.greeks([80, 90, 100])             # GreeksResult: .delta, .gamma, .vega (e
 | `s_max` | `S0 * 3` | Upper bound of asset price domain (must be > barrier)$^1$ |
 | `v_min` | 0.0 | Lower bound of variance domain |
 | `v_max` | 1.0 | Upper bound of variance domain |
-| `num_insert` | 251 | Number of equally spaced knot insertions between boundary knots$^2$ |
+| `num_insert` | 251 | Number of quadrature grid points per direction for numerical integration$^2$ |
 | `barrier` | 0.0 | Barrier level (0.0 = no barrier) |
 | `option_type` | — | Integer (0–9) or string name (see [Option Types](#option-types)) |
 | `K` | — | Strike price(s) — `float` or `list[float]` |
@@ -365,7 +365,7 @@ g = p.greeks([80, 90, 100])             # GreeksResult: .delta, .gamma, .vega (e
 | `atol` | `1e-6` | Absolute tolerance for Radau IIA adaptive time-stepping |
 
 $^1$ Must be $> \text{barrier}$ for down-options and $> S_0$ to avoid truncating the probability mass. The default $S_0 \times 3$ is conservative.
-$^2$ Higher values produce denser quadrature grids for more accurate matrix assembly, at a linear increase in solve time. The pipeline default `251` matches the Python reference's internal grid resolution. `Pricer` defaults to 50 for faster (but coarser) evaluation.
+$^2$ Controls the number of grid points used for Gauss-Legendre quadrature during Galerkin matrix assembly. More points yield more accurate mass/stiffness matrices at a linear increase in solve time. The pipeline default `251` matches the Python reference's internal grid resolution. `Pricer` defaults to 50 for faster (but coarser) evaluation.
 
 ### Pricing Results
 
