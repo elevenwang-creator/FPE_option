@@ -12,10 +12,12 @@ jobs:
             target: linux-64
           - platform: macos-latest
             target: osx-arm64
+      max-parallel: 1
     runs-on: ${{ matrix.platform }}
-    permissions:
-      id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: prefix-dev/setup-pixi@v0.8.0
-      - run: pixi publish --target-channel https://prefix.dev/fpe-engine
+      - uses: prefix-dev/setup-pixi@v0.8.5
+      - run: pixi run build
+      - run: pixi auth login --token ${{ secrets.PIXI_TOKEN }} https://repo.prefix.dev
+      - run: pixi build
+      - run: pixi publish .pixi/output/*.conda --token ${{ secrets.PIXI_TOKEN }} https://repo.prefix.dev/fpe-engine
