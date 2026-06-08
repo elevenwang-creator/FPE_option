@@ -339,6 +339,34 @@ g = p.greeks([80, 90, 100])             # GreeksResult: .delta, .gamma, .vega (e
 | 8 | `european_call` | Vanilla call (barrier ignored) |
 | 9 | `european_put` | Vanilla put (barrier ignored) |
 
+### Parameter Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `S0` | — | Initial asset price |
+| `V0` | — | Initial variance |
+| `T` | — | Time to maturity (years) |
+| `r` | — | Risk-free rate |
+| `kappa` | — | Mean-reversion speed of variance |
+| `theta` | — | Long-term variance level |
+| `sigma` / `eta` | — | Volatility of variance |
+| `rho` | — | Correlation between $S_t$ and $V_t$ |
+| `n_s` | 38 | Number of B-spline knots in $s$-direction |
+| `n_v` | 38 | Number of B-spline knots in $v$-direction |
+| `s_min` | 0.0 | Lower bound of asset price domain |
+| `s_max` | `S0 * 3` | Upper bound of asset price domain (must be > barrier)$^1$ |
+| `v_min` | 0.0 | Lower bound of variance domain |
+| `v_max` | 1.0 | Upper bound of variance domain |
+| `num_insert` | 251 | Number of equally spaced knot insertions between boundary knots$^2$ |
+| `barrier` | 0.0 | Barrier level (0.0 = no barrier) |
+| `option_type` | — | Integer (0–9) or string name (see [Option Types](#option-types)) |
+| `K` | — | Strike price(s) — `float` or `list[float]` |
+| `rtol` | `1e-4` | Relative tolerance for Radau IIA adaptive time-stepping |
+| `atol` | `1e-6` | Absolute tolerance for Radau IIA adaptive time-stepping |
+
+$^1$ Must be $> \text{barrier}$ for down-options and $> S_0$ to avoid truncating the probability mass. The default $S_0 \times 3$ is conservative.
+$^2$ Higher values produce denser quadrature grids for more accurate matrix assembly, at a linear increase in solve time. The pipeline default `251` matches the Python reference's internal grid resolution. `Pricer` defaults to 50 for faster (but coarser) evaluation.
+
 ### Pricing Results
 
 Example prices (European call, Heston parameters as above, n_s=n_v=38):
@@ -429,7 +457,7 @@ fpe::FpeCompute pricer(
     r=0.1, T=0.6, S0=60.0, V0=0.1,
     n_s=38, n_v=38, barrier=50.0,
     option_type=2,  // down_and_out_call
-    50,              // num_insert
+    251,             // num_insert
     s_min=0.0, s_max=150.0  // domain bounds (optional, -1 → auto)
 );
 
@@ -451,7 +479,7 @@ auto result = fpe::FpeCompute::price_oneshot(
     {80.0, 90.0, 100.0},      // strikes
     barrier=50.0, option_type=2,
     n_s=38, n_v=38,
-    50,                        // num_insert
+    251,                       // num_insert
     s_min=0.0, s_max=150.0    // domain bounds (optional, -1 → auto)
 );
 // result.price, result.delta, result.gamma, result.vega (each vector<double>)

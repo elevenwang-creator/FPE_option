@@ -108,7 +108,7 @@ public:
         double kappa, double theta, double sigma, double rho, double r,
         double T, double S0, double V0,
         int32_t n_s, int32_t n_v, double barrier, int32_t option_type,
-        int32_t num_insert = 50,
+        int32_t num_insert = 251,
         double s_min = -1.0, double s_max = -1.0
     ) : ptr_(nullptr) {
         double s_min_actual = (s_min >= 0.0) ? s_min : 0.0;
@@ -230,7 +230,7 @@ public:
         const std::vector<double>& K,
         double barrier, int32_t option_type,
         int32_t n_s, int32_t n_v,
-        int32_t num_insert = 50,
+        int32_t num_insert = 251,
         double s_min = -1.0, double s_max = -1.0
     ) {
         double s_min_actual = (s_min >= 0.0) ? s_min : 0.0;
