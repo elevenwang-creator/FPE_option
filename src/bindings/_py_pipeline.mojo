@@ -21,7 +21,10 @@ struct PyComputePipeline(Writable, Movable):
     @staticmethod
     def py_init(out self: Self, args: PythonObject, kwargs: PythonObject) raises:
         var fp = fpe_params_from_kwargs(kwargs)
-        self = Self(ComputePipeline(fp^))
+        var num_insert: Int = 251
+        if kwargs.__contains__("num_insert"):
+            num_insert = Int(py=kwargs["num_insert"])
+        self = Self(ComputePipeline(fp^, num_insert=num_insert))
 
     @staticmethod
     def knots(py_self: PythonObject) raises -> PythonObject:
