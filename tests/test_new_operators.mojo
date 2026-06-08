@@ -1,7 +1,7 @@
 """Test new operator overloads: CSRMatrix.__rmul__, DiagMatrix operators."""
 
 from sparse.csr import CSRMatrix
-from sparse.diag import DiagMatrix, identity_csr
+from sparse.diag import DiagMatrix
 
 
 def assert_eq(actual: Float64, expected: Float64, label: String) raises:

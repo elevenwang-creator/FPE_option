@@ -1,4 +1,4 @@
-"""Test SparseLU symbolic/numeric factorization split."""
+"""Test SparseLU factorize + solve + solve_inplace on various matrices."""
 
 from numerics.utils.sparse_lu import SparseLU
 from numerics.utils import FixedSizeVector
@@ -8,195 +8,157 @@ from std.math import abs
 
 
 def main() raises:
-    print("=== SparseLU Symbolic/Numeric Split Test ===")
+    print("=== SparseLU Factor/Solve Test ===")
     print()
 
-    print("[Test 1] Sym+Num matches factorize on 5x5 tridiagonal")
-    var n = 5
-    var A_csr = CSRMatrix(n, n, 0)
-    var indptr: List[Int] = [0]
-    var indices: List[Int] = []
-    var data: List[Float64] = []
-    for i in range(n):
+    var all_pass = True
+
+    # Test 1: 5x5 tridiagonal
+    print("[Test 1] 5x5 tridiagonal solve")
+    var n1 = 5
+    var csr1 = CSRMatrix(n1, n1, 0)
+    var iptr1: List[Int] = [0]
+    var idxs1: List[Int] = []
+    var dat1: List[Float64] = []
+    for i in range(n1):
         if i > 0:
-            indices.append(i - 1)
-            data.append(-1.0)
-        indices.append(i)
-        data.append(4.0)
-        if i < n - 1:
-            indices.append(i + 1)
-            data.append(-1.0)
-        indptr.append(len(indices))
-    A_csr.indptr = indptr^
-    A_csr.indices = indices^
-    A_csr.data = data^
-    A_csr._nnz = len(A_csr.data)
-
-    var A_csc = A_csr.to_csc()
-
-    var lu_full = SparseLU(n)
-    lu_full.factorize(A_csc)
-
-    var lu_split = SparseLU(n)
-    lu_split.factorize_symbolic(A_csc)
-    lu_split.factorize_numeric(A_csc)
-
-    var b: List[Float64] = [3.0, 6.0, 3.0, 6.0, 4.0]
-    var x_full = lu_full.solve(b)
-    var x_split = lu_split.solve(b)
-
-    var diff = 0.0
-    for i in range(n):
-        diff = diff + abs(x_full[i] - x_split[i])
-    print("  ||x_full - x_split|| = ", diff)
-    var ok1 = diff < 1e-12
-    print("  PASS" if ok1 else "  FAIL")
+            idxs1.append(i - 1)
+            dat1.append(-1.0)
+        idxs1.append(i)
+        dat1.append(4.0)
+        if i < n1 - 1:
+            idxs1.append(i + 1)
+            dat1.append(-1.0)
+        iptr1.append(len(idxs1))
+    csr1.indptr = iptr1^
+    csr1.indices = idxs1^
+    csr1.data = dat1^
+    csr1._nnz = len(csr1.data)
+    var A1 = csr1.to_csc()
+    var b1: List[Float64] = [3.0, 2.0, 2.0, 2.0, 3.0]
+    var lu1 = SparseLU(5)
+    lu1.factorize(A1)
+    var x1 = lu1.solve(b1)
+    var err1 = 0.0
+    for i in range(5):
+        err1 += abs(x1[i] - 1.0)
+    var ok1 = err1 < 1e-10
+    print("  ||x - 1|| =", err1, "PASS" if ok1 else "FAIL")
+    all_pass = all_pass and ok1
     print()
 
-    print("[Test 2] Re-numeric with different diagonal values")
-    var A2_csr = CSRMatrix(n, n, 0)
-    var indptr2: List[Int] = [0]
-    var indices2: List[Int] = []
-    var data2: List[Float64] = []
-    for i in range(n):
+    # Test 2: Different tridiagonal values
+    print("[Test 2] 5x5 tridiagonal (diag=8, off=-2)")
+    var n2 = 5
+    var csr2 = CSRMatrix(n2, n2, 0)
+    var iptr2: List[Int] = [0]
+    var idxs2: List[Int] = []
+    var dat2: List[Float64] = []
+    for i in range(n2):
         if i > 0:
-            indices2.append(i - 1)
-            data2.append(-2.0)
-        indices2.append(i)
-        data2.append(8.0)
-        if i < n - 1:
-            indices2.append(i + 1)
-            data2.append(-2.0)
-        indptr2.append(len(indices2))
-    A2_csr.indptr = indptr2^
-    A2_csr.indices = indices2^
-    A2_csr.data = data2^
-    A2_csr._nnz = len(A2_csr.data)
-
-    var A2_csc = A2_csr.to_csc()
-
-    lu_split.factorize_numeric(A2_csc)
-
-    var b2: List[Float64] = [4.0, 4.0, 4.0, 4.0, 4.0]
-    var x2 = lu_split.solve(b2)
-
-    var lu2_full = SparseLU(n)
-    lu2_full.factorize(A2_csc)
-    var x2_full = lu2_full.solve(b2)
-
-    var diff2 = 0.0
-    for i in range(n):
-        diff2 = diff2 + abs(x2[i] - x2_full[i])
-    print("  ||x2_renum - x2_full|| = ", diff2)
-    var ok2 = diff2 < 1e-10
-    print("  PASS" if ok2 else "  FAIL")
+            idxs2.append(i - 1)
+            dat2.append(-2.0)
+        idxs2.append(i)
+        dat2.append(8.0)
+        if i < n2 - 1:
+            idxs2.append(i + 1)
+            dat2.append(-2.0)
+        iptr2.append(len(idxs2))
+    csr2.indptr = iptr2^
+    csr2.indices = idxs2^
+    csr2.data = dat2^
+    csr2._nnz = len(csr2.data)
+    var A2 = csr2.to_csc()
+    var b2: List[Float64] = [6.0, 4.0, 4.0, 4.0, 6.0]
+    var lu2 = SparseLU(5)
+    lu2.factorize(A2)
+    var x2 = lu2.solve(b2)
+    var err2 = 0.0
+    for i in range(5):
+        err2 += abs(x2[i] - 1.0)
+    var ok2 = err2 < 1e-10
+    print("  ||x - 1|| =", err2, "PASS" if ok2 else "FAIL")
+    all_pass = all_pass and ok2
     print()
 
-    print("[Test 3] solve_inplace matches solve after sym+num")
-    var b3_vec = FixedSizeVector(n)
-    var work3 = FixedSizeVector(n)
-    var b3_data: List[Float64] = [3.0, 6.0, 3.0, 6.0, 4.0]
-    for i in range(n):
-        b3_vec.ptr()[i] = b3_data[i]
-
-    lu_split.factorize_numeric(A_csc)
-    lu_split.solve_inplace(b3_vec, work3)
+    # Test 3: solve_inplace matches solve
+    print("[Test 3] solve_inplace matches solve")
+    var n3 = 5
+    var csr3 = CSRMatrix(n3, n3, 0)
+    var iptr3: List[Int] = [0]
+    var idxs3: List[Int] = []
+    var dat3: List[Float64] = []
+    for i in range(n3):
+        if i > 0:
+            idxs3.append(i - 1)
+            dat3.append(-1.0)
+        idxs3.append(i)
+        dat3.append(4.0)
+        if i < n3 - 1:
+            idxs3.append(i + 1)
+            dat3.append(-1.0)
+        iptr3.append(len(idxs3))
+    csr3.indptr = iptr3^
+    csr3.indices = idxs3^
+    csr3.data = dat3^
+    csr3._nnz = len(csr3.data)
+    var A3 = csr3.to_csc()
+    var b3: List[Float64] = [3.0, 6.0, 3.0, 6.0, 4.0]
+    var lu3 = SparseLU(5)
+    lu3.factorize(A3)
+    var x3_ref = lu3.solve(b3)
+    var b3_vec = FixedSizeVector(5)
+    var work3 = FixedSizeVector(5)
+    for i in range(5):
+        b3_vec.ptr()[i] = b3[i]
+    lu3.solve_inplace(b3_vec, work3)
     var x3_inplace = b3_vec.to_list()
-    var x3_solve = lu_split.solve(b3_data)
-
-    var diff3 = 0.0
-    for i in range(n):
-        diff3 = diff3 + abs(x3_inplace[i] - x3_solve[i])
-    print("  ||solve - solve_inplace|| = ", diff3)
-    var ok3 = diff3 < 1e-12
-    print("  PASS" if ok3 else "  FAIL")
+    var err3 = 0.0
+    for i in range(5):
+        err3 += abs(x3_ref[i] - x3_inplace[i])
+    var ok3 = err3 < 1e-12
+    print("  ||solve - solve_inplace|| =", err3, "PASS" if ok3 else "FAIL")
+    all_pass = all_pass and ok3
     print()
 
-
-    print("[Test 4] Sym+Num with pivoting (zero diagonal 4x4)")
-    var A4_csr = CSRMatrix(4, 4, 0)
-    var indptr4: List[Int] = [0]
-    var indices4: List[Int] = []
-    var data4: List[Float64] = []
-    indices4.append(1); data4.append(2.0)
-    indices4.append(2); data4.append(1.0)
-    indptr4.append(2)
-    indices4.append(0); data4.append(1.0)
-    indices4.append(3); data4.append(3.0)
-    indptr4.append(4)
-    indices4.append(1); data4.append(1.0)
-    indices4.append(2); data4.append(4.0)
-    indices4.append(3); data4.append(1.0)
-    indptr4.append(7)
-    indices4.append(2); data4.append(1.0)
-    indices4.append(3); data4.append(5.0)
-    indptr4.append(9)
-    A4_csr.indptr = indptr4^
-    A4_csr.indices = indices4^
-    A4_csr.data = data4^
-    A4_csr._nnz = 9
-    var A4_csc = A4_csr.to_csc()
-
-    var lu4_full = SparseLU(4)
-    lu4_full.factorize(A4_csc)
-    var lu4_split = SparseLU(4)
-    lu4_split.factorize_symbolic(A4_csc)
-    lu4_split.factorize_numeric(A4_csc)
-
+    # Test 4: 4x4 with pivoting (zero diagonal)
+    print("[Test 4] 4x4 pivoting (zero diagonal)")
+    var csr4 = CSRMatrix(4, 4, 9)
+    var iptr4: List[Int] = [0]
+    var idxs4: List[Int] = []
+    var dat4: List[Float64] = []
+    idxs4.append(1); dat4.append(2.0)
+    idxs4.append(2); dat4.append(1.0)
+    iptr4.append(2)
+    idxs4.append(0); dat4.append(1.0)
+    idxs4.append(3); dat4.append(3.0)
+    iptr4.append(4)
+    idxs4.append(1); dat4.append(1.0)
+    idxs4.append(2); dat4.append(4.0)
+    idxs4.append(3); dat4.append(1.0)
+    iptr4.append(7)
+    idxs4.append(2); dat4.append(1.0)
+    idxs4.append(3); dat4.append(5.0)
+    iptr4.append(9)
+    csr4.indptr = iptr4^
+    csr4.indices = idxs4^
+    csr4.data = dat4^
+    csr4._nnz = 9
+    var A4 = csr4.to_csc()
     var b4: List[Float64] = [4.0, 10.0, 17.0, 18.0]
-    var x4_full = lu4_full.solve(b4)
-    var x4_split = lu4_split.solve(b4)
-
-    var diff4 = 0.0
+    var lu4 = SparseLU(4)
+    lu4.factorize(A4)
+    var x4 = lu4.solve(b4)
+    var Ax4 = csr4.spmv_new(x4)
+    var resid4 = 0.0
     for i in range(4):
-        diff4 = diff4 + abs(x4_full[i] - x4_split[i])
-    print(" ||x4_full - x4_split|| = ", diff4)
-    var ok4 = diff4 < 1e-12
-    print(" PASS" if ok4 else " FAIL")
+        resid4 += abs(Ax4[i] - b4[i])
+    var ok4 = resid4 < 1e-10
+    print("  ||Ax - b|| =", resid4, "PASS" if ok4 else "FAIL")
+    all_pass = all_pass and ok4
     print()
 
-    print("[Test 5] Re-numeric with pivoting (modified 4x4)")
-    var A5_csr = CSRMatrix(4, 4, 0)
-    var indptr5: List[Int] = [0]
-    var indices5: List[Int] = []
-    var data5: List[Float64] = []
-    indices5.append(1); data5.append(3.0)
-    indices5.append(2); data5.append(2.0)
-    indptr5.append(2)
-    indices5.append(0); data5.append(2.0)
-    indices5.append(3); data5.append(5.0)
-    indptr5.append(4)
-    indices5.append(1); data5.append(2.0)
-    indices5.append(2); data5.append(6.0)
-    indices5.append(3); data5.append(2.0)
-    indptr5.append(7)
-    indices5.append(2); data5.append(2.0)
-    indices5.append(3); data5.append(8.0)
-    indptr5.append(9)
-    A5_csr.indptr = indptr5^
-    A5_csr.indices = indices5^
-    A5_csr.data = data5^
-    A5_csr._nnz = 9
-    var A5_csc = A5_csr.to_csc()
-
-    lu4_split.factorize_numeric(A5_csc)
-    var lu5_full = SparseLU(4)
-    lu5_full.factorize(A5_csc)
-
-    var b5: List[Float64] = [7.0, 12.0, 28.0, 30.0]
-    var x5_renum = lu4_split.solve(b5)
-    var x5_full = lu5_full.solve(b5)
-
-    var diff5 = 0.0
-    for i in range(4):
-        diff5 = diff5 + abs(x5_renum[i] - x5_full[i])
-    print(" ||x5_renum - x5_full|| = ", diff5)
-    var ok5 = diff5 < 1e-10
-    print(" PASS" if ok5 else " FAIL")
-    print()
-
-    var all_pass = ok1 and ok2 and ok3 and ok4 and ok5
     if all_pass:
-        print("=== ALL SYM/NUM TESTS PASS ===")
+        print("=== ALL TESTS PASS ===")
     else:
         print("=== SOME TESTS FAILED ===")

@@ -45,9 +45,9 @@ def main():
     var prev_norm: Float64 = 0.0
     for idx in range(len(h_values)):
         var h = h_values[idx]
-        var Z1 = Z1_list[idx]
-        var Z2 = Z2_list[idx]
-        var Z3 = Z3_list[idx]
+        var Z1 = Z1_list[idx].copy()
+        var Z2 = Z2_list[idx].copy()
+        var Z3 = Z3_list[idx].copy()
 
         var err_est: List[Float64] = []
         for k in range(3):
