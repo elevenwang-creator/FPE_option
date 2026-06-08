@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include THIRD_PARTY_NOTICES.md
+recursive-include cpp/include *.h
+recursive-include python/fpe_engine *.so *.dylib py.typed

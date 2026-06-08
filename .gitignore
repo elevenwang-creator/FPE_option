@@ -41,3 +41,5 @@ cpp/libfpe_engine.dylib
 *docs/python_reference/
 single_price
 test_origin13
+benchmarks/bench_ndarray_binary
+benchmarks/test_radau_accelerate
