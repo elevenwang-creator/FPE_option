@@ -10,6 +10,7 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest, macos-latest]
+      max-parallel: 1
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +25,7 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest, macos-latest]
+      max-parallel: 1
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
