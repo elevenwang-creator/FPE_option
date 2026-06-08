@@ -18,7 +18,7 @@
 
 ### Changed
 - CI: upcoming-feature tests (calibrator, bindings, e2e, GPU, autograd, etc.) excluded from CI — run locally only
-- README: pixi install channel updated to `https://repo.prefix.dev/fpe-engine`
+- README: pixi install channel updated to `https://prefix.dev/fpe-engine`
 
 ## 0.2.0 (2026-06-08)
 
