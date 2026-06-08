@@ -33,7 +33,7 @@ def bench_vanilla_call():
             heston=_make_heston(), n_s=N_S, n_v=N_V,
             barrier=0.0, option_type=8, strikes=_make_strikes(),
         )
-        var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=50)
+        var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=251)
         _ = pricer.price(fp^)
     except:
         pass
@@ -45,7 +45,7 @@ def bench_down_and_out_call():
             heston=_make_heston(), n_s=N_S, n_v=N_V,
             barrier=50.0, option_type=2, strikes=_make_strikes(),
         )
-        var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=50)
+        var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=251)
         _ = pricer.price(fp^)
     except:
         pass
@@ -57,7 +57,7 @@ def bench_down_and_in_call():
             heston=_make_heston(), n_s=N_S, n_v=N_V,
             barrier=50.0, option_type=0, strikes=_make_strikes(),
         )
-        var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=50)
+        var pricer = Pricer(rtol=1e-4, atol=1e-6, num_insert=251)
         _ = pricer.price(fp^)
     except:
         pass
@@ -70,7 +70,7 @@ def main() raises:
             heston=_make_heston(), n_s=N_S, n_v=N_V,
             barrier=50.0, option_type=2, strikes=_make_strikes(),
         )
-        var w = Pricer(rtol=1e-4, atol=1e-6, num_insert=50)
+        var w = Pricer(rtol=1e-4, atol=1e-6, num_insert=251)
         _ = w.price(fp^)
     except:
         pass
@@ -82,7 +82,7 @@ def main() raises:
     print("  Config: n_s=38, n_v=38, S0=60, T=0.6")
     print("         8 strikes [65, 70, ..., 100]")
     print("         Domain: [0, 150], Barrier: 50")
-    print("  Pricer: num_insert=50, rtol=1e-4, atol=1e-6")
+    print("  Pricer: num_insert=251, rtol=1e-4, atol=1e-6")
     print("  Warmed up: 1 DOC solve")
     print("")
 
