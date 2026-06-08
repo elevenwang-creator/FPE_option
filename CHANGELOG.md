@@ -3,10 +3,8 @@
 ## 0.2.0 (2026-06-08)
 
 ### Added
-- Python `pip install` support via `pyproject.toml`
 - LICENSE file (MIT)
 - CONTRIBUTING.md with development guide
-- `py.typed` marker for PEP 561 compliance
 
 ### Fixed
 - C++ RAII wrapper: throws `std::runtime_error` on pipeline creation failure instead of silent empty results
