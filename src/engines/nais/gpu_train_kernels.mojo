@@ -1,59 +1,16 @@
 """GPU kernels for NAIS training.
 
-Strictly fulfills: NAIS training on GPU.
+NOTE: GPU-accelerated NAIS training is not yet implemented.
+The CPU-based Trainer (in trainer.mojo) is the fully functional training path.
+
+This module serves as a placeholder for future GPU acceleration work.
 """
 
 from std.gpu import block_idx, thread_idx, block_dim
-from layout import Layout, LayoutTensor
+from layout import LayoutTensor
 from std.gpu.host import DeviceContext
 from std.sys import has_accelerator
 from gpu_utils.dtype import GPU_DTYPE, GPU_VEC_LAYOUT
-from std.math import ceildiv
-
-
-def nais_fbsde_loss_kernel(
-    loss_out: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
-    params_in: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
-    n_params: Int,
-    batch_size: Int,
-):
-    """Computes the FBSDE loss entirely on the GPU.
-
-    NOTE: This is a stub implementation. The loss computation always
-    returns 0.5 as a placeholder. Replace with real FBSDE loss to
-    enable correct GPU training.
-
-    Architecture:
-    grid_dim.x defines the batch size / number of paths.
-    block_dim.x dictates thread count collaborating inside the batch operation.
-    """
-    var b = block_idx.x
-    if Int(b) >= batch_size:
-        return
-    # Dummy loss computation for demonstration of GPU isolation
-    # Collaborate via thread_idx.x
-    if Int(thread_idx.x) == 0:
-        loss_out[Int(b)] = rebind[loss_out.element_type](0.5)
-
-
-def nais_gradient_descent_kernel(
-    params_out: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
-    loss_in: LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT, MutAnyOrigin],
-    learning_rate: Scalar[GPU_DTYPE],
-    n_params: Int,
-):
-    """Computes gradients and applies them to parameters on GPU."""
-    # A single block handles all parameters
-    var tid = thread_idx.x
-    var threads = block_dim.x
-    var i = Int(tid)
-    while i < n_params:
-        var p = rebind[Scalar[GPU_DTYPE]](params_out[i])
-        var l = rebind[Scalar[GPU_DTYPE]](loss_in[0])
-        params_out[i] = rebind[params_out.element_type](
-            p - learning_rate * l * 0.01
-        )
-        i += Int(threads)
 
 
 @fieldwise_init
@@ -63,50 +20,7 @@ struct NAISGPUTrainExecutor:
     var n_params: Int
 
     def execute_training_on_gpu(self) raises -> List[Float64]:
-        comptime assert (
-            has_accelerator()
-        ), "GPU is critically required for NAIS training!"
-        var ctx = DeviceContext()
-
-        var bs = 256
-        var batch_size = 64
-
-        var loss_buf = ctx.enqueue_create_buffer[GPU_DTYPE](batch_size)
-        var params_buf = ctx.enqueue_create_buffer[GPU_DTYPE](self.n_params)
-
-        var loss_t = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](loss_buf)
-        var params_t = LayoutTensor[GPU_DTYPE, GPU_VEC_LAYOUT](params_buf)
-        var lr_scalar = rebind[Scalar[GPU_DTYPE]](self.learning_rate)
-
-        var host_losses = List[Float64]()
-        for iteration in range(self.n_iter):
-            # NAIS Loss is computed across `batch_size` paths. Thus grid_dim=batch_size.
-            ctx.enqueue_function[
-                nais_fbsde_loss_kernel, nais_fbsde_loss_kernel
-            ](
-                loss_t,
-                params_t,
-                self.n_params,
-                batch_size,
-                grid_dim=batch_size,
-                block_dim=bs,
-            )
-            # Parameter update executes on a single block spanning all parameters. grid_dim=1.
-            ctx.enqueue_function[
-                nais_gradient_descent_kernel, nais_gradient_descent_kernel
-            ](
-                params_t,
-                loss_t,
-                lr_scalar,
-                self.n_params,
-                grid_dim=1,
-                block_dim=bs,
-            )
-
-            # Read back loss[0] from GPU to track training progress
-            ctx.synchronize()
-            var host_buf = ctx.enqueue_copy_to_host[GPU_DTYPE](loss_buf)
-            host_losses.append(Float64(host_buf[0] or 0.0))
-
-        ctx.synchronize()
-        return host_losses^
+        raise Error(
+            "GPU-accelerated NAIS training is not yet implemented. "
+            "Use the CPU-based Trainer in engines.nais.trainer instead."
+        )

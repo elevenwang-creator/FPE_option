@@ -24,7 +24,7 @@ struct FpeParams(Copyable, Movable, Writable):
             if self.barrier <= 0.0 or self.barrier >= self.heston.S0:
                 return False
         elif self.option_type <= 7:
-            if self.barrier <= 0.0 or self.barrier <= self.heston.S0:
+            if self.barrier <= 0.0 or self.barrier < self.heston.S0:
                 return False
         else:
             if self.barrier != 0.0:

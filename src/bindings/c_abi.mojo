@@ -138,7 +138,8 @@ def fpe_compute_create(
     )
     if not heston.is_valid():
         return PipelinePtr(unsafe_from_address=0)
-    var strikes = [100.0]
+    # Use S0 as dummy strike for pipeline validation; actual strikes passed at pricing time
+    var strikes = [heston.S0]
     var fp = FpeParams(
         heston=heston^,
         n_s=Int(n_s),

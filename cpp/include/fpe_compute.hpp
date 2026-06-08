@@ -6,6 +6,7 @@
 #include <optional>
 #include <cstddef>
 #include <cstdio>
+#include <stdexcept>
 
 namespace fpe {
 
@@ -118,7 +119,7 @@ public:
             s_min_actual, s_max_actual
         );
         if (!ptr_) {
-            fprintf(stderr, "FpeCompute: failed to create pipeline\n");
+            throw std::runtime_error("FpeCompute: failed to create pipeline — check parameters");
         }
     }
 

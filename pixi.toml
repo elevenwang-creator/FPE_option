@@ -1,6 +1,6 @@
 [workspace]
 name = "fpe-engine"
-version = "0.0.0"
+version = "0.2.0"
 description = "FPE Option Pricing Engine — Mojo + MAX AI Kernels (version from git tag)"
 channels = [
     "https://conda.modular.com/max-nightly",
@@ -12,7 +12,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "fpe-engine"
-version = "0.0.0"
+version = "0.2.0"
 
 [package.build]
 backend = { name = "pixi-build-rattler-build", version = "*", channels = [

@@ -23,7 +23,7 @@ import numpy as np
 try:
     from ._version import __version__
 except ImportError:
-    __version__ = "0.0.0-dev"
+    __version__ = "0.2.0-dev"
 
 _logger = logging.getLogger("fpe_engine")
 

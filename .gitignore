@@ -8,10 +8,18 @@ benchmarks/test_radau5_correct
 benchmarks/test_radau5_large
 benchmarks/test_radau5_accelerate
 benchmarks/bench_fortran_radau5
+benchmarks/Colab_FPE_Benchmark.ipynb
 bin/
 *.mtx
 *.pyc
 __pycache__/
+*.so
+*.dylib
+cpp/examples/live_trading
+python/fpe_engine/_fpe_native.so
+python/fpe_engine/_native.so
+python/fpe_engine/_native.dylib
+cpp/libfpe_engine.dylib
 *.json
 .agents/
 .claude/
@@ -29,6 +37,7 @@ __pycache__/
 .zed/
 .pixi/
 .pytest_cache/
+.omo/
 #docs/python_reference/
 single_price
 test_origin13
