@@ -31,11 +31,11 @@ mkdir -p "${PREFIX}/include"
 cp cpp/include/fpe_engine.h "${PREFIX}/include/"
 cp cpp/include/fpe_compute.hpp "${PREFIX}/include/"
 
-echo "=== [3/5] Building Python native module ==="
-mojo build -I src --emit shared-lib -o "${SITE_PACKAGES}/fpe_engine/_fpe_native${PY_EXT_SUFFIX}" src/bindings/_fpe_native.mojo
-
-echo "=== [4/5] Installing Python package into site-packages ==="
+echo "=== [3/5] Installing Python package into site-packages ==="
 mkdir -p "${SITE_PACKAGES}/fpe_engine"
+
+echo "=== [4/5] Building Python native module ==="
+mojo build -I src --emit shared-lib -o "${SITE_PACKAGES}/fpe_engine/_fpe_native${PY_EXT_SUFFIX}" src/bindings/_fpe_native.mojo
 cp python/fpe_engine/__init__.py "${SITE_PACKAGES}/fpe_engine/"
 cp python/fpe_engine/pricer.py "${SITE_PACKAGES}/fpe_engine/"
 cat > "${SITE_PACKAGES}/fpe_engine/_version.py" <<EOF
