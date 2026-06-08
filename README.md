@@ -145,7 +145,7 @@ This costs **2 FPE solves** per in-option pricing (vs. 1 solve for out-options),
 | C++ RAII wrapper | Yes |
 | Adaptive time-stepping (Radau IIA) | Yes |
 | Sparse matrix assembly with Kronecker structure | Yes |
-| Cross-platform: macOS (ARM/x86) + Linux | Yes |
+| Cross-platform: macOS (ARM) + Linux | Yes |
 | Conda package (pixi) | Yes |
 | Auto-versioning from git tags | Yes |
 | Configurable domain bounds (s_min/s_max) | Yes |
