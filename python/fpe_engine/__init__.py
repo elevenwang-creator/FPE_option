@@ -30,6 +30,7 @@ _logger = logging.getLogger("fpe_engine")
 try:
     from ._fpe_native import price as _native_price
     from ._fpe_native import Compute as NativeCompute
+    NativeCompute.__module__ = "fpe_engine"
     _NATIVE_AVAILABLE = True
 except ImportError as e:
     _logger.warning("Mojo FPE engine not available: %s", e)

@@ -7,13 +7,17 @@ from engines.fpe.heston_params import HestonParams
 comptime PipelinePtr = UnsafePointer[ComputePipeline, MutExternalOrigin]
 comptime F64Ptr = UnsafePointer[Float64, MutExternalOrigin]
 
+# Optional[UnsafePointer] has same memory layout as raw pointer (None = 0x0),
+# compatible with C ABI null pointer convention.
+comptime OptPipelinePtr = Optional[PipelinePtr]
+
 
 def _null_f64() -> F64Ptr:
-    return F64Ptr(unsafe_from_address=0)
+    return F64Ptr.unsafe_dangling()
 
 
-def _is_null_ptr(ptr: PipelinePtr) -> Bool:
-    return Int(ptr.__int__()) == 0
+def _is_null(ptr: OptPipelinePtr) -> Bool:
+    return not ptr
 
 
 @fieldwise_init
@@ -102,7 +106,7 @@ def _free_heap(ptr: F64Ptr, n: Int):
         ptr.free()
 
 
-@export("fpe_compute_create", ABI="C")
+@export("fpe_compute_create")
 def fpe_compute_create(
     kappa: Float64,
     theta: Float64,
@@ -119,7 +123,7 @@ def fpe_compute_create(
     num_insert: Int32,
     s_min: Float64,
     s_max: Float64,
-) -> PipelinePtr:
+) abi("C") -> OptPipelinePtr:
     var actual_s_min = s_min if s_min >= 0.0 else 0.0
     var actual_s_max = s_max if s_max > 0.0 else S0 * 3.0
     var heston = HestonParams(
@@ -137,8 +141,7 @@ def fpe_compute_create(
         V_max=1.0,
     )
     if not heston.is_valid():
-        return PipelinePtr(unsafe_from_address=0)
-    # Use S0 as dummy strike for pipeline validation; actual strikes passed at pricing time
+        return OptPipelinePtr()
     var strikes = [heston.S0]
     var fp = FpeParams(
         heston=heston^,
@@ -151,27 +154,28 @@ def fpe_compute_create(
     var ptr = alloc[ComputePipeline](1)
     try:
         ptr.init_pointee_move(ComputePipeline(fp^, num_insert=Int(num_insert)))
-        return ptr
+        return OptPipelinePtr(ptr)
     except:
         ptr.free()
-        return PipelinePtr(unsafe_from_address=0)
+        return OptPipelinePtr()
 
 
-@export("fpe_compute_destroy", ABI="C")
+@export("fpe_compute_destroy")
 def fpe_compute_destroy(
-    ptr: PipelinePtr,
-):
-    if not _is_null_ptr(ptr):
-        ptr.destroy_pointee()
-        ptr.free()
+    ptr: OptPipelinePtr,
+) abi("C"):
+    if ptr:
+        var p = ptr.value()
+        p.destroy_pointee()
+        p.free()
 
 
-@export("fpe_compute_knots", ABI="C")
+@export("fpe_compute_knots")
 def fpe_compute_knots(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     result: UnsafePointer[FpeVec2Result, MutExternalOrigin],
-):
-    if _is_null_ptr(ptr):
+) abi("C"):
+    if not ptr:
         result[] = FpeVec2Result(
             s_data=_null_f64(),
             s_len=Int32(0),
@@ -179,7 +183,8 @@ def fpe_compute_knots(
             v_len=Int32(0),
         )
         return
-    var tup = ptr[].knots()
+    var p = ptr.value()
+    var tup = p[].knots()
     var s = tup[0].copy()
     var v = tup[1].copy()
     var s_len = len(s)
@@ -192,12 +197,12 @@ def fpe_compute_knots(
     )
 
 
-@export("fpe_compute_grid_points", ABI="C")
+@export("fpe_compute_grid_points")
 def fpe_compute_grid_points(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     result: UnsafePointer[FpeGridPtsResult, MutExternalOrigin],
-):
-    if _is_null_ptr(ptr):
+) abi("C"):
+    if not ptr:
         result[] = FpeGridPtsResult(
             s_data=_null_f64(),
             s_len=Int32(0),
@@ -207,7 +212,8 @@ def fpe_compute_grid_points(
             vw_data=_null_f64(),
         )
         return
-    var tup = ptr[].grid_points()
+    var p = ptr.value()
+    var tup = p[].grid_points()
     var s = tup[0].copy()
     var v = tup[1].copy()
     var sw = tup[2].copy()
@@ -224,26 +230,34 @@ def fpe_compute_grid_points(
     )
 
 
-@export("fpe_compute_initial_condition", ABI="C")
+@export("fpe_compute_initial_condition")
 def fpe_compute_initial_condition(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     result: UnsafePointer[FpeVecResult, MutExternalOrigin],
-):
+) abi("C"):
+    if not ptr:
+        result[] = FpeVecResult(data=_null_f64(), len=Int32(0))
+        return
+    var p = ptr.value()
     try:
-        var q0 = ptr[].initial_condition()
+        var q0 = p[].initial_condition()
         var n = len(q0)
         result[] = FpeVecResult(data=_list_to_heap(q0^), len=Int32(n))
     except:
         result[] = FpeVecResult(data=_null_f64(), len=Int32(0))
 
 
-@export("fpe_compute_solve", ABI="C")
+@export("fpe_compute_solve")
 def fpe_compute_solve(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     result: UnsafePointer[FpeMatResult, MutExternalOrigin],
-):
+) abi("C"):
+    if not ptr:
+        result[] = FpeMatResult(data=_null_f64(), n_rows=Int32(0), n_cols=Int32(0))
+        return
+    var p = ptr.value()
     try:
-        var sol = ptr[].solve()
+        var sol = p[].solve()
         var heap_tup = _mat_to_heap(sol)
         result[] = FpeMatResult(
             data=heap_tup[0],
@@ -254,13 +268,17 @@ def fpe_compute_solve(
         result[] = FpeMatResult(data=_null_f64(), n_rows=Int32(0), n_cols=Int32(0))
 
 
-@export("fpe_compute_pdf", ABI="C")
+@export("fpe_compute_pdf")
 def fpe_compute_pdf(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     result: UnsafePointer[FpeMatResult, MutExternalOrigin],
-):
+) abi("C"):
+    if not ptr:
+        result[] = FpeMatResult(data=_null_f64(), n_rows=Int32(0), n_cols=Int32(0))
+        return
+    var p = ptr.value()
     try:
-        var pdf_grid = ptr[].pdf()
+        var pdf_grid = p[].pdf()
         var heap_tup = _mat_to_heap(pdf_grid)
         result[] = FpeMatResult(
             data=heap_tup[0],
@@ -271,37 +289,38 @@ def fpe_compute_pdf(
         result[] = FpeMatResult(data=_null_f64(), n_rows=Int32(0), n_cols=Int32(0))
 
 
-@export("fpe_compute_price", ABI="C")
+@export("fpe_compute_price")
 def fpe_compute_price(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     K_ptr: UnsafePointer[Float64, MutAnyOrigin],
     n_K: Int32,
     result: UnsafePointer[FpeVecResult, MutExternalOrigin],
-):
-    if n_K < 0:
+) abi("C"):
+    if n_K < 0 or not ptr:
         result[] = FpeVecResult(data=_null_f64(), len=Int32(0))
         return
+    var p = ptr.value()
     try:
         var strikes: List[Float64] = List[Float64](capacity=Int(n_K))
         for i in range(Int(n_K)):
             strikes.append(K_ptr[i])
-        var prices = ptr[].price_at(strikes)
+        var prices = p[].price_at(strikes)
         var n = len(prices)
         result[] = FpeVecResult(data=_list_to_heap(prices^), len=Int32(n))
     except:
         result[] = FpeVecResult(data=_null_f64(), len=Int32(0))
 
 
-@export("fpe_compute_greeks", ABI="C")
+@export("fpe_compute_greeks")
 def fpe_compute_greeks(
-    ptr: PipelinePtr,
+    ptr: OptPipelinePtr,
     K_ptr: UnsafePointer[Float64, MutAnyOrigin],
     n_K: Int32,
     rel_s: Float64,
     rel_v: Float64,
     result: UnsafePointer[FpeGreeksResult, MutExternalOrigin],
-):
-    if n_K < 0:
+) abi("C"):
+    if n_K < 0 or not ptr:
         result[] = FpeGreeksResult(
             delta=_null_f64(),
             gamma=_null_f64(),
@@ -309,11 +328,12 @@ def fpe_compute_greeks(
             len=Int32(0),
         )
         return
+    var p = ptr.value()
     try:
         var strikes: List[Float64] = List[Float64](capacity=Int(n_K))
         for i in range(Int(n_K)):
             strikes.append(K_ptr[i])
-        var g_tup = ptr[].greeks(strikes, rel_s=rel_s, rel_v=rel_v)
+        var g_tup = p[].greeks(strikes, rel_s=rel_s, rel_v=rel_v)
         var deltas = g_tup[0].copy()
         var gammas = g_tup[1].copy()
         var vegas = g_tup[2].copy()
@@ -333,7 +353,7 @@ def fpe_compute_greeks(
         )
 
 
-@export("fpe_price_oneshot", ABI="C")
+@export("fpe_price_oneshot")
 def fpe_price_oneshot(
     kappa: Float64,
     theta: Float64,
@@ -353,7 +373,7 @@ def fpe_price_oneshot(
     s_min: Float64,
     s_max: Float64,
     result: UnsafePointer[FpeOneshotResult, MutExternalOrigin],
-):
+) abi("C"):
     if n_K < 0:
         result[] = FpeOneshotResult(
             price=_null_f64(),
@@ -420,21 +440,21 @@ def fpe_price_oneshot(
         )
 
 
-@export("fpe_compute_free_vec", ABI="C")
-def fpe_compute_free_vec(ptr: UnsafePointer[FpeVecResult, MutExternalOrigin]):
+@export("fpe_compute_free_vec")
+def fpe_compute_free_vec(ptr: UnsafePointer[FpeVecResult, MutExternalOrigin]) abi("C"):
     var r = ptr[]
     _free_heap(r.data, Int(r.len))
 
 
-@export("fpe_compute_free_vec2", ABI="C")
-def fpe_compute_free_vec2(ptr: UnsafePointer[FpeVec2Result, MutExternalOrigin]):
+@export("fpe_compute_free_vec2")
+def fpe_compute_free_vec2(ptr: UnsafePointer[FpeVec2Result, MutExternalOrigin]) abi("C"):
     var r = ptr[]
     _free_heap(r.s_data, Int(r.s_len))
     _free_heap(r.v_data, Int(r.v_len))
 
 
-@export("fpe_compute_free_grid_pts", ABI="C")
-def fpe_compute_free_grid_pts(ptr: UnsafePointer[FpeGridPtsResult, MutExternalOrigin]):
+@export("fpe_compute_free_grid_pts")
+def fpe_compute_free_grid_pts(ptr: UnsafePointer[FpeGridPtsResult, MutExternalOrigin]) abi("C"):
     var r = ptr[]
     _free_heap(r.s_data, Int(r.s_len))
     _free_heap(r.v_data, Int(r.v_len))
@@ -442,8 +462,8 @@ def fpe_compute_free_grid_pts(ptr: UnsafePointer[FpeGridPtsResult, MutExternalOr
     _free_heap(r.vw_data, Int(r.v_len))
 
 
-@export("fpe_compute_free_mat", ABI="C")
-def fpe_compute_free_mat(ptr: UnsafePointer[FpeMatResult, MutExternalOrigin]):
+@export("fpe_compute_free_mat")
+def fpe_compute_free_mat(ptr: UnsafePointer[FpeMatResult, MutExternalOrigin]) abi("C"):
     var r = ptr[]
     var n_rows = Int(r.n_rows)
     var n_cols = Int(r.n_cols)
@@ -457,16 +477,16 @@ def fpe_compute_free_mat(ptr: UnsafePointer[FpeMatResult, MutExternalOrigin]):
     _free_heap(r.data, total)
 
 
-@export("fpe_compute_free_greeks", ABI="C")
-def fpe_compute_free_greeks(ptr: UnsafePointer[FpeGreeksResult, MutExternalOrigin]):
+@export("fpe_compute_free_greeks")
+def fpe_compute_free_greeks(ptr: UnsafePointer[FpeGreeksResult, MutExternalOrigin]) abi("C"):
     var r = ptr[]
     _free_heap(r.delta, Int(r.len))
     _free_heap(r.gamma, Int(r.len))
     _free_heap(r.vega, Int(r.len))
 
 
-@export("fpe_compute_free_oneshot", ABI="C")
-def fpe_compute_free_oneshot(ptr: UnsafePointer[FpeOneshotResult, MutExternalOrigin]):
+@export("fpe_compute_free_oneshot")
+def fpe_compute_free_oneshot(ptr: UnsafePointer[FpeOneshotResult, MutExternalOrigin]) abi("C"):
     var r = ptr[]
     _free_heap(r.price, Int(r.len))
     _free_heap(r.delta, Int(r.len))

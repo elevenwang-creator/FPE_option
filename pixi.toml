@@ -38,7 +38,7 @@ nbconvert = ">=7.17.1,<8"
 
 [tasks]
 build = "bash scripts/build_cpp.sh"
-test = "python -m pytest tests/test_pricer_stepwise.py -v"
+test = "python -W 'ignore:builtin type Compute has no __module__:DeprecationWarning' -m pytest tests/test_pricer_stepwise.py -v"
 test-mojo = "mojo run -I src tests/test_add.mojo"
 test-fpe = "bash scripts/test_fpe.sh"
 bench = "mojo run -I src benchmarks/bench_vs_python.mojo"

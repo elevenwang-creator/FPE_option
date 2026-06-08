@@ -47,7 +47,7 @@ struct ScratchBuffer[T: ImplicitlyCopyable](Movable):
 
     @always_inline
     def __setitem__(mut self, i: Int, val: Self.T):
-        self.data[i] = val
+        (self.data + i).init_pointee_copy(val)
 
     @always_inline
     def ptr(self) -> UnsafePointer[Self.T, MutExternalOrigin]:

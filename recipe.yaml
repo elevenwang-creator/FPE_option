@@ -8,6 +8,9 @@ package:
 source:
   - path: .
     use_gitignore: true
+    filter:
+      - "**/*"
+      - "!.git/**"
 
 build:
   number: 0
