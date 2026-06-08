@@ -487,6 +487,24 @@ auto result = fpe::FpeCompute::price_oneshot(
 
 Link with `-lfpe_engine`.
 
+### CMake Integration
+
+```cmake
+# Find conda-installed library (headers in $PREFIX/include, lib in $PREFIX/lib)
+find_path(FPE_ENGINE_INCLUDE_DIR fpe_engine.h)
+find_library(FPE_ENGINE_LIBRARY fpe_engine)
+
+if(NOT FPE_ENGINE_INCLUDE_DIR OR NOT FPE_ENGINE_LIBRARY)
+  message(FATAL_ERROR "fpe-engine not found. Install: pixi add fpe-engine")
+endif()
+
+add_executable(my_pricer main.cpp)
+target_include_directories(my_pricer PRIVATE ${FPE_ENGINE_INCLUDE_DIR})
+target_link_libraries(my_pricer PRIVATE ${FPE_ENGINE_LIBRARY})
+```
+
+Conda installs `fpe_engine.h` and `fpe_compute.hpp` to `$CONDA_PREFIX/include/` and `libfpe_engine.dylib`/`.so` to `$CONDA_PREFIX/lib/`. For pixi users, the path is `$PIXI_PROJECT_ROOT/.pixi/envs/default/`.
+
 ---
 
 ## Mojo API
