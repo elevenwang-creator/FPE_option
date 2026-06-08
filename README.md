@@ -223,11 +223,11 @@ The GIFs below show the PDF evolution from $t=0$ (delta peak at $S_0=60, V_0=0.1
 
 **European call PDF evolution:**
 
-![PDF evolution](python/examples/pdf_evolution.gif)
+![PDF evolution](python/examples/pdf_evolution.apng)
 
 **Barrier call PDF evolution (down-and-out, barrier=50):**
 
-![Barrier PDF evolution](python/examples/pdf_evolution_barrier.gif)
+![Barrier PDF evolution](python/examples/pdf_evolution_barrier.apng)
 
 ---
 
@@ -237,7 +237,7 @@ The GIFs below show the PDF evolution from $t=0$ (delta peak at $S_0=60, V_0=0.1
 
 - [Mojo](https://www.modular.com/mojo) >= 1.0.0b2
 - Python >= 3.12 (for Python bindings)
-- macOS (ARM/x86) or Linux
+- macOS (ARM) or Linux
 
 ### Using pixi (recommended)
 
