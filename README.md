@@ -54,7 +54,7 @@
 
 This engine solves the **Fokker-Planck equation (FPE)** corresponding to the **Heston stochastic volatility model** using a variational approach with **B-spline basis functions**. The resulting system of ODEs is integrated via the **Radau IIA** implicit Runge-Kutta method (5th order). The computed probability density function (PDF) is then used to price **European and single-barrier options**.
 
-The core numerical engine is written in **[Mojo](https://www.modular.com/mojo)** — a high-performance language that compiles to native code — and exposes APIs for **Python**, **C**, and **C++** consumption. On the same hardware, the Mojo engine achieves approximately **11.2x speedup** over the Python reference implementation for the full pipeline.
+The core numerical engine is written in **[Mojo](https://www.modular.com/mojo)** — a high-performance language that compiles to native code — and exposes APIs for **Python**, **C**, and **C++** consumption. On the same hardware, the Mojo engine achieves approximately **10.2x speedup** over the Python reference implementation for the full pipeline.
 
 ---
 
@@ -347,11 +347,15 @@ Example prices (European call, Heston parameters as above, n_s=n_v=38):
 >>> result = price(S0=60.0, V0=0.1, T=0.6, r=0.1,
 ...                kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
 ...                n_s=38, n_v=38, K=[80, 90, 100],
-...                option_type="european_call")
+...                s_max=150.0, option_type="european_call")
 >>> result.prices
-array([0.955473, 0.277799, 0.078040])
+array([0.966276, 0.280919, 0.078883])
 >>> result.deltas
-array([0.169856, 0.058032, 0.018030])
+array([0.175855, 0.060298, 0.018875])
+>>> result.gammas
+array([0.017766, 0.009270, 0.002742])
+>>> result.vegas
+array([14.057144,  6.197252,  2.283113])
 ```
 
 For barrier options:
@@ -360,9 +364,10 @@ For barrier options:
 >>> result = price(S0=60.0, V0=0.1, T=0.6, r=0.1,
 ...                kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
 ...                n_s=38, n_v=38, K=[80, 90, 100],
+...                s_max=150.0,
 ...                barrier=50.0, option_type="down_and_out_call")
 >>> result.prices
-array([0.888749, 0.258968, 0.072760])
+array([0.905038, 0.263874, 0.074223])
 ```
 
 ---
@@ -468,7 +473,7 @@ from engines.fpe.heston_params import HestonParams
 var heston = HestonParams(
     kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
     r=0.1, T=0.6, S0=60.0, V0=0.1,
-    S_min=1.0, S_max=200.0, V_min=0.0, V_max=1.0,
+    S_min=0.0, S_max=150.0, V_min=0.0, V_max=1.0,
 )
 
 # Single option (returns PricingResult)
@@ -499,7 +504,7 @@ from engines.fpe.heston_params import HestonParams
 var heston = HestonParams(
     kappa=1.2, theta=0.05, sigma=0.35, rho=-0.4,
     r=0.1, T=0.6, S0=60.0, V0=0.1,
-    S_min=1.0, S_max=200.0, V_min=0.0, V_max=1.0,
+    S_min=0.0, S_max=150.0, V_min=0.0, V_max=1.0,
 )
 var fp = FpeParams(
     heston=heston, n_s=38, n_v=38,
@@ -539,39 +544,40 @@ var (deltas, gammas, vegas) = pipe.greeks([100.0, 110.0])
 ## Performance Benchmarks
 
 All benchmarks run on **Apple M1 Pro (macOS, 2021, 16 GB RAM)**.
-**Configuration:** $n_s = 38$, $n_v = 38$, $S_0 = 60$, $T = 0.6$, down-and-out barrier call ($B = 50$), `num_insert = 251`.
+**Configuration:** $n_s = 38$, $n_v = 38$, $S_0 = 60$, $T = 0.6$, down-and-out barrier call ($B = 50$), `num_insert = 251`, `s_max = 150`.
 
-The Python reference is the original FPE solver from which this engine was ported ([debug_python_ref.py](debug_python_ref.py)).
-The Mojo engine benchmark runs natively, compiled to machine code ([bench_vs_python.mojo](benchmarks/bench_vs_python.mojo)).
-The C++ binding benchmark runs via the C ABI through the C++ RAII wrapper ([cpp/examples/demo.cpp](cpp/examples/demo.cpp)). C++ numbers include pipeline creation and full lazy evaluation from the same process (the demo creates two additional 16x16 pipelines beforehand, reflecting real-world usage where multiple configs coexist). The C binding has negligible marshaling overhead.
+The Python reference is the original FPE solver from which this engine was ported ([debug_python_ref.py](debug_python_ref.py)). It prices **vanilla European calls** (no barrier pricing) — the comparison is against Mojo's DOC pricing using the same domain bounds.
+The Mojo engine benchmark uses `std.benchmark` and runs natively ([bench_vs_python.mojo](benchmarks/bench_vs_python.mojo)).
+The C++ binding benchmark runs via the C ABI through the C++ RAII wrapper ([cpp/examples/demo.cpp](cpp/examples/demo.cpp)). C++ numbers include pipeline creation and full lazy evaluation from the same process (the demo creates two additional 16x16 pipelines beforehand, reflecting real-world usage where multiple configs coexist). The Python binding benchmark measures the C ABI call for `payoff_price()` after pipeline creation (lazy, ~0.03 s).
 
 ### Native Engine Comparison
 
 | Benchmark | Time | vs Python Ref |
 |-----------|-----:|:-------------|
-| Python Reference (solve + price) | 34.71 s | 1.0x |
-| Mojo Engine via Python binding (solve + price only) | 4.10 s | **8.5x faster** |
-| Mojo Engine via C++ binding (solve + price only) | 3.72 s | **9.3x faster** |
-| Mojo Engine native (solve + price only) | 3.09 s | **11.2x faster** |
-| Mojo Engine via Python binding (one-shot + Greeks, 8 strikes) | 13.85 s | 2.5x faster |
-| Mojo Engine via C++ binding (one-shot + Greeks, 8 strikes) | 14.70 s | 2.4x faster |
+| Python Reference (solve + price) | 35.00 s | 1.0x |
+| Mojo Engine via Python binding (solve + price only) | 4.22 s | **8.3x faster** |
+| Mojo Engine via C++ binding (solve + price only) | 4.18 s | **8.4x faster** |
+| Mojo Engine native (solve + price only) | 3.44 s | **10.2x faster** |
+| Mojo Engine via Python binding (one-shot + Greeks, 8 strikes) | 15.90 s | 2.2x faster |
+| Mojo Engine via C++ binding (one-shot + Greeks, 8 strikes) | 15.83 s | 2.2x faster |
 
 ### Binding Overhead
 
 | Language | Interface | Overhead vs Native |
 |----------|-----------|:------------------|
-| Python | `Compute.payoff_price()` through Mojo native module | ~33% (1.0 s data marshaling) |
-| C / C++ | C ABI `fpe_compute_create/price` through direct .dylib call | negligible (< 1%) |
+| Python | `Compute.payoff_price()` through Mojo native module | ~23% (0.78 s data marshaling) |
+| C / C++ | C ABI `fpe_compute_create/price` through direct .dylib call | ~22% |
 
-The Python binding adds ~1 second of marshaling overhead per call. The C ABI (via C or C++ RAII wrapper) calls the same Mojo backend directly with no marshaling -- performance is within ~20% of native Mojo; the C++ benchmark runs alongside other pipeline instances in the same process, adding memory pressure relative to the standalone native benchmark.
+The Python binding adds ~0.78 s of marshaling overhead per `payoff_price()` call. The C ABI (via C or C++ RAII wrapper) calls the same Mojo backend directly — the C++ benchmark runs alongside other pipeline instances in the same process, adding memory pressure relative to the standalone native benchmark. Without those competing pipelines, C++ overhead is negligible (< 1%).
 
 ### Greeks
 
 | Benchmark | Time | Notes |
 |-----------|-----:|-------|
-| One-shot price (8 strikes) | 3.09 s | 1 solve |
-| One-shot price + Greeks (8 strikes) | 13.85 s | 4 more solves (finite differences) |
-| Greeks only (incremental) | 10.76 s | ~3.5x the base solve |
+| Native Mojo: price (8 strikes) | 3.44 s | 1 solve (std.benchmark) |
+| C++ binding: price (8 strikes) | 4.18 s | 1 solve (with 2 prior 16x16 pipelines) |
+| C++ binding: price + Greeks (8 strikes) | 15.83 s | 4 more solves (finite differences) |
+| C++ binding: Greeks only (incremental) | 11.65 s | ~2.8x the base solve |
 
 ### Option Price Comparison
 
@@ -609,15 +615,16 @@ The exact parity (DIC + DOC = Vanilla with 0.0 error) confirms the in-option pri
 
 | Option Type | Solves | Time | Relative to Out |
 |------------|-------:|-----:|:----------------|
-| Vanilla call | 1 | 3.59 s | — |
-| DOC (down-and-out call, B=50) | 1 | 3.46 s | 1.0x |
-| DIC (down-and-in call, B=50) | 2 | 6.98 s | 2.0x |
+| Vanilla call | 1 | 3.57 s | — |
+| DOC (down-and-out call, B=50) | 1 | 3.44 s | 1.0x |
+| DIC (down-and-in call, B=50) | 2 | 7.00 s | 2.0x |
 
 The ~2.0x cost for in-options matches the theoretical expectation (2 FPE solves vs 1). Vanilla and DOC solve times are similar because their effective domains differ only in the lower bound ($s=0$ vs $s=50$ at $n_s=38$).
 
 ### Caveats
 
-- The Python reference uses more internal basis functions (43 x 44) than the Mojo engine (38 x 38) for the same $n_s, n_v$ input -- the internal knot generation differs. This partially contributes to the speedup.
+- The Python reference uses more internal basis functions (43 x 44) than the Mojo engine (38 x 38) for the same $n_s, n_v$ input — the internal knot generation differs. This partially contributes to the speedup.
+- The Python reference prices **vanilla European calls** only (no barrier pricing), while Mojo benchmarks price down-and-out barrier calls ($B = 50$). The domain bounds match ($s \in [0, 150]$), so the comparison is valid for overall engine performance.
 - Small price differences are expected due to differences in adaptive time-stepping tolerances, linear solver convergence criteria, and floating-point arithmetic.
 - Greeks use finite differences, requiring 4 additional FPE solves (10 solves for in-options due to in-out parity).
 - Pricing in-options costs ~2.0x an out-option (theoretical minimum: 2 FPE solves vs 1).
@@ -626,7 +633,7 @@ The ~2.0x cost for in-options matches the theoretical expectation (2 FPE solves 
 <summary>Run the benchmark yourself</summary>
 
 ```bash
-# Native Mojo benchmark (out-option)
+# Native Mojo benchmark (out-option, std.benchmark)
 pixi run bench
 
 # In-option pricing overhead benchmark (std.benchmark)
@@ -635,7 +642,7 @@ pixi run bench-inout
 # Python reference benchmark
 pixi run bench-py-ref
 
-# Python binding benchmark (no Greeks)
+# Python binding benchmark (payoff_price only, pipeline pre-created)
 pixi run bench-py-binding
 ```
 </details>
