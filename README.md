@@ -796,6 +796,8 @@ Lower-level components that enable improved performance and numerical stability.
 
 *Files: `cpp/examples/live_trading`*
 
+> **CI note:** Upcoming feature tests (calibrator, e2e pipeline, bindings, FBSDE, CPU parallel, etc.) are excluded from CI to keep runs fast. Run them locally with `mojo run -I src tests/<test_file>.mojo`.
+
 ---
 
 ## References
