@@ -579,57 +579,57 @@ The Python binding adds ~1 second of marshaling overhead per call. The C ABI (vi
 
 | Strike | Mojo Engine (DOC) | Python Ref | Diff |
 |-------:|------------------:|----------:|:-----|
-| 65 | 4.3335 | 4.438 | -2.35% |
-| 70 | 2.6944 | 2.769 | -2.69% |
-| 75 | 1.5822 | 1.632 | -3.05% |
-| 80 | 0.8887 | 0.919 | -3.29% |
-| 85 | 0.4842 | 0.502 | -3.55% |
-| 90 | 0.2590 | 0.269 | -3.72% |
-| 95 | 0.1373 | 0.143 | -3.99% |
-| 100 | 0.0728 | 0.076 | -4.21% |
+| 65 | 4.3945 | 4.438 | -0.98% |
+| 70 | 2.7411 | 2.769 | -1.01% |
+| 75 | 1.6093 | 1.632 | -1.39% |
+| 80 | 0.9050 | 0.919 | -1.52% |
+| 85 | 0.4947 | 0.502 | -1.45% |
+| 90 | 0.2639 | 0.269 | -1.91% |
+| 95 | 0.1399 | 0.143 | -2.15% |
+| 100 | 0.0742 | 0.076 | -2.34% |
 
-Note: the Mojo engine prices are for down-and-out barrier call with $B=50$, while the Python reference solves the FPE without barrier conditions and prices vanilla calls. The close agreement validates the barrier truncation approach.
 
 **In-out parity verification ($B=50$, $n_s = n_v = 38$):**
 
 | Strike | Vanilla (Mojo) | DOC | DIC | DIC+DOC | Parity Error |
 |-------:|---------------:|----:|----:|--------:|:------------|
-| 65 | 4.7316 | 4.3335 | 0.3980 | 4.7316 | 0.0 |
-| 70 | 2.9183 | 2.6944 | 0.2240 | 2.9183 | 0.0 |
-| 75 | 1.7059 | 1.5822 | 0.1238 | 1.7059 | 0.0 |
-| 80 | 0.9555 | 0.8887 | 0.0667 | 0.9555 | 0.0 |
-| 85 | 0.5196 | 0.4842 | 0.0355 | 0.5196 | 0.0 |
-| 90 | 0.2778 | 0.2590 | 0.0188 | 0.2778 | 0.0 |
-| 95 | 0.1474 | 0.1373 | 0.0101 | 0.1474 | 0.0 |
-| 100 | 0.0780 | 0.0728 | 0.0053 | 0.0780 | 0.0 |
+| 65 | 4.7609 | 4.3945 | 0.3664 | 4.7609 | 0.0 |
+| 70 | 2.9472 | 2.7411 | 0.2061 | 2.9472 | 0.0 |
+| 75 | 1.7227 | 1.6093 | 0.1133 | 1.7227 | 0.0 |
+| 80 | 0.9663 | 0.9050 | 0.0612 | 0.9663 | 0.0 |
+| 85 | 0.5273 | 0.4947 | 0.0325 | 0.5273 | 0.0 |
+| 90 | 0.2809 | 0.2639 | 0.0170 | 0.2809 | 0.0 |
+| 95 | 0.1488 | 0.1399 | 0.0089 | 0.1488 | 0.0 |
+| 100 | 0.0789 | 0.0742 | 0.0047 | 0.0789 | 0.0 |
 
 The exact parity (DIC + DOC = Vanilla with 0.0 error) confirms the in-option pricing is consistent with the barrier solver.
 
-**In-option pricing overhead ($n_s = n_v = 38$):**
+**In-option pricing overhead ($n_s = n_v = 38$, benchmarked with `std.benchmark`):**
 
 | Option Type | Solves | Time | Relative to Out |
 |------------|-------:|-----:|:----------------|
-| Vanilla call | 1 | 17.89 s | — |
-| DOC (down-and-out call, B=50) | 1 | 13.74 s | 1.0x |
-| DIC (down-and-in call, B=50) | 2 | 31.64 s | 2.3x |
-| UOC (up-and-out call, B=70) | 1 | 12.31 s | 1.0x |
-| UIC (up-and-in call, B=70) | 2 | 30.28 s | 2.5x |
+| Vanilla call | 1 | 3.22 s | — |
+| DOC (down-and-out call, B=50) | 1 | 3.12 s | 1.0x |
+| DIC (down-and-in call, B=50) | 2 | 6.38 s | 2.0x |
 
-The ~2.3-2.5x cost for in-options reflects the two FPE solves required by the in-out parity approach. Note that vanilla pricing uses the full $[S_{\min}, S_{\max}]$ domain, while out-option pricing uses a narrower truncated domain $[B, S_{\max}]$ or $[S_{\min}, B]$, which is why vanilla can be slower than the out-option despite both using 1 solve.
+The ~2.0x cost for in-options matches the theoretical expectation (2 FPE solves vs 1). Vanilla and DOC solve times are similar because their effective domains differ only in the lower bound ($s=0$ vs $s=50$ at $n_s=38$).
 
 ### Caveats
 
 - The Python reference uses more internal basis functions (43 x 44) than the Mojo engine (38 x 38) for the same $n_s, n_v$ input -- the internal knot generation differs. This partially contributes to the speedup.
 - Small price differences are expected due to differences in adaptive time-stepping tolerances, linear solver convergence criteria, and floating-point arithmetic.
 - Greeks use finite differences, requiring 4 additional FPE solves (10 solves for in-options due to in-out parity).
-- Pricing in-options costs ~2.3-2.5x an out-option because in-out parity requires 2 FPE solves (1 vanilla + 1 out) vs. 1 solve for out-options.
+- Pricing in-options costs ~2.0x an out-option (theoretical minimum: 2 FPE solves vs 1).
 
 <details>
 <summary>Run the benchmark yourself</summary>
 
 ```bash
-# Native Mojo benchmark
+# Native Mojo benchmark (out-option)
 pixi run bench
+
+# In-option pricing overhead benchmark (std.benchmark)
+pixi run bench-inout
 
 # Python reference benchmark
 pixi run bench-py-ref
