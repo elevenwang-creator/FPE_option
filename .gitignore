@@ -38,7 +38,9 @@ cpp/libfpe_engine.dylib
 .pixi/
 .pytest_cache/
 .omo/
-*docs/python_reference/
+!docs/python_reference/
+docs/specs/
+docs/superpowers/
 single_price
 test_origin13
 benchmarks/bench_ndarray_binary
